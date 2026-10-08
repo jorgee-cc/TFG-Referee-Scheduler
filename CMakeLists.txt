@@ -12,13 +12,20 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BUILD_TESTING "Build the test suite" ON)
 
+add_library(referee_scheduler_domain INTERFACE)
+
+target_include_directories(referee_scheduler_domain
+    INTERFACE
+        ${PROJECT_SOURCE_DIR}/include
+)
+
 add_executable(referee_scheduler
     src/main.cpp
 )
 
-target_include_directories(referee_scheduler
+target_link_libraries(referee_scheduler
     PRIVATE
-        ${PROJECT_SOURCE_DIR}/include
+        referee_scheduler_domain
 )
 
 if(BUILD_TESTING)
