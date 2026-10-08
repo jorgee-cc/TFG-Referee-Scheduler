@@ -1,0 +1,12 @@
+build/
+.cache/
+.vscode/
+*.o
+*.a
+*.so
+*.d
+compile_commands.json
+
+# Resultados generados
+data/generated/
+results/
