@@ -5,7 +5,7 @@
 namespace referee_scheduler::domain
 {
 
-    /// Representa un partido que requiere la asignación de un árbitro.
+    /// Representa un partido que requiere cubrir una o varias plazas.
     class Partido
     {
     public:
@@ -13,10 +13,6 @@ namespace referee_scheduler::domain
         int id = 0;
         /// Identificador de la sede donde se disputa el partido.
         int sede_id = 0;
-        /// Retribución económica asociada al arbitraje.
-        double retribucion = 0.0;
-        /// Nivel mínimo requerido para arbitrar el partido.
-        int nivel_requerido = 0;
         /// Fecha y hora de inicio del partido.
         std::time_t inicio = 0;
         /// Fecha y hora de finalización del partido.

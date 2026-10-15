@@ -21,10 +21,11 @@ Most directories are still placeholders; the only real code is the domain model 
 ## Conventions (differ from C++ defaults)
 
 - Domain entities are `class` with **public fields**, no getters/setters, and default member initializers (`int id = 0;`). Data will be assigned by the future IO loader; do not reintroduce encapsulation/accessors unless asked.
-- Spanish naming throughout: types `Equipo, Sede, Arbitro, Partido, Asignacion, Estado`; fields like `sede_id`, `equipo_local_id`.
-- Do NOT write code comments (project preference).
+- Spanish naming throughout: types `Equipo, Sede, Arbitro, Partido, Plaza, Asignacion, Estado`; fields like `sede_id`, `plaza_id`, `equipo_local_id`.
 - Cross-entity references use `int` ids, not nested objects or pointers.
-- `Estado` (`estado.hpp`) is the search-space node and holds `std::vector<Asignacion>`. The old `enum class Estado` lifecycle enum was removed; do not restore it.
+- `Estado` (`estado.hpp`) is the search-space node and holds `std::vector<Asignacion>`. It stays minimal (no time/location/pay); those are derived from the state + fixed data during feasibility checks. The old `enum class Estado` lifecycle enum was removed; do not restore it.
+- A `Partido` requires one or more `Plaza` (one per role in `enum class Rol`). `nivel_requerido` and `retribucion` live on `Plaza`, not `Partido`. `Asignacion` is the pair (`plaza_id`, `arbitro_id`).
+- `Arbitro` declares `disponibilidad_inicio`/`disponibilidad_fin` (no separate max-hours cap). Referee location/time is derived from the last assigned match's `sede_id`/`final`.
 
 ## Roadmap / scope
 

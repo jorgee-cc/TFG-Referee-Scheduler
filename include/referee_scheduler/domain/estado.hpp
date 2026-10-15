@@ -17,7 +17,7 @@ public:
     explicit Estado(std::vector<Asignacion> asignaciones)
         : asignaciones(std::move(asignaciones)) {}
 
-    /// Asignaciones de árbitros a partidos que forman el estado actual.
+    /// Asignaciones de árbitros a plazas que forman el estado actual.
     std::vector<Asignacion> asignaciones;
 };
 
