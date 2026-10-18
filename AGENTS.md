@@ -23,7 +23,8 @@ Most directories are still placeholders; the only real code is the domain model 
 - Domain entities are `class` with **public fields**, no getters/setters, and default member initializers (`int id = 0;`). Data will be assigned by the future IO loader; do not reintroduce encapsulation/accessors unless asked.
 - Spanish naming throughout: types `Equipo, Sede, Arbitro, Partido, Plaza, Asignacion, Estado`; fields like `sede_id`, `plaza_id`, `equipo_local_id`.
 - Cross-entity references use `int` ids, not nested objects or pointers.
-- `Estado` (`estado.hpp`) is the search-space node and holds `std::vector<Asignacion>`. It stays minimal (no time/location/pay); those are derived from the state + fixed data during feasibility checks. The old `enum class Estado` lifecycle enum was removed; do not restore it.
+- `Estado` (`estado.hpp`) is the search-space node. It holds `std::vector<Asignacion>` plus two derived caches indexed by referee id: `ultima_sede_arbitro` (current venue; `-1` unset) and `franja_ocupada_arbitro` (occupied time slot; `-1` free). These caches are redundant with `asignaciones` and MUST be kept in sync on every successor; initialize them (size = nº referees) when building the initial state, since `Estado` cannot see the instance. The old `enum class Estado` lifecycle enum was removed; do not restore it.
+- The `franja` (time slot) concept is not yet modeled in the domain; `franja_ocupada_arbitro` stores an int slot id whose source still needs defining.
 - A `Partido` requires one or more `Plaza` (one per role in `enum class Rol`). `nivel_requerido` and `retribucion` live on `Plaza`, not `Partido`. `Asignacion` is the pair (`plaza_id`, `arbitro_id`).
 - `Arbitro` declares `disponibilidad_inicio`/`disponibilidad_fin` (no separate max-hours cap). Referee location/time is derived from the last assigned match's `sede_id`/`final`.
 
@@ -36,3 +37,4 @@ Most directories are still placeholders; the only real code is the domain model 
 
 - Always add the necessary comments for the user to understand the newly created or modified code.
 - Wait until the user has approved all the changes. Once approved, proactively ask if you should add exhaustive comments and documentation across all the modified code.
+  -Only whenn I asked you for the commit message you will have to update the context
