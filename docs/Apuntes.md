@@ -4,17 +4,12 @@ Notas de trabajo y decisiones aplazadas para el TFG (Referee Scheduler / Referee
 
 ## Roadmap
 
-1. **Espacio de estados** (actual): representación del nodo del grafo de búsqueda.
-   - `Estado` contiene `std::vector<Asignacion>` más las cachés `ultima_sede_arbitro` y `franja_ocupada_arbitro`.
-2. **Construcción del grafo**: operadores/sucesores, generación de vecinos, factibilidad.
-3. **Función objetivo y heurística**: maximizar la retribución por hora trabajada.
-   - Incluye tiempo efectivo de arbitraje, tiempo de desplazamiento entre sedes y tiempos muertos.
-4. **Optimización**: rendimiento, estructuras de datos, búsqueda.
-5. **Carga de datos (IO)**: lectura de instancias y volcado de resultados.
+El orden de trabajo operativo vive en `AGENTS.md`: arena, función objetivo, transiciones del
+estado, frontera de búsqueda, datos estáticos, ensamblado de Dijkstra y validación final.
 
 ## Decisiones de diseño actuales
 
-- Clases del dominio con campos públicos, sin getters/setters, definidas *header-only*.
+- Clases del dominio con campos públicos, sin getters/setters, definidas _header-only_.
 - `std::time_t` para los instantes de `Partido` y para la disponibilidad de `Arbitro`.
 - Referencias entre entidades mediante `id` (`sede_id`, `partido_id`, `plaza_id`, ...).
 - **Plazas y roles**: un partido exige cubrir varias `Plaza` (una por rol: principal, asistente,
@@ -23,26 +18,42 @@ Notas de trabajo y decisiones aplazadas para el TFG (Referee Scheduler / Referee
 - `Asignacion` es el par (`plaza_id`, `arbitro_id`): cubre una plaza concreta, no un partido entero.
 - **Disponibilidad**: cada `Arbitro` declara `disponibilidad_inicio` y `disponibilidad_fin`. No hay
   un tope de horas trabajadas independiente de esa ventana.
-- **El estado tiene cachés derivadas**: además de `asignaciones`, guarda:
-  - `ultima_sede_arbitro` (índice = id de árbitro, valor = id de su sede actual; `-1` si no tiene);
-  - `franja_ocupada_arbitro` (índice = id de árbitro, valor = id de la franja ocupada; `-1` si libre).
-  - Son información **redundante** que se puede derivar de `asignaciones`, pero se cachea para pasar
-    de O(nº asignaciones) a O(1) en la comprobación de factibilidad. Deben mantenerse sincronizadas
-    en cada sucesor y dimensionarse (nº de árbitros) al construir el estado inicial.
-  - Requiere ids de árbitro densos y desde 0, o un mapeo id -> índice en la carga.
-- Resto de datos derivados durante la factibilidad (no se almacenan):
-  - disponibilidad = `final` del último partido + viaje de vuelta al domicilio <= `disponibilidad_fin`;
-  - nivel = `nivel_requerido` de la plaza; retribución = `retribucion` de la plaza.
+- **El estado de búsqueda** vive en `algorithms::Estado` (`include/referee_scheduler/algorithms/estado.hpp`):
+  - `EstadoArbitro` ocupa 4 B: `sede_id` (10 bits), `minuto_liberacion` (11 bits) y `reservado`
+    (11 bits). 10 + 11 + 11 = 32; `static_assert` fija `sizeof(EstadoArbitro) == 4`.
+  - `Estado` es `std::array<EstadoArbitro, 300>` = 1200 B, trivialmente copiable y sin reservas
+    dinámicas. 16 árbitros caben en una línea de caché de 64 B y el estado completo ocupa 19 líneas.
+  - Es la **mínima estadística suficiente** del pasado: dónde está cada árbitro, cuándo queda libre
+    y 11 bits reservados. No guarda historial (equipos ya arbitrados, número de partidos, etc.).
+  - `minuto_liberacion` es un minuto absoluto desde el `t0` del día; un día (1440 min) cabe en 11 bits.
+  - La sede no tiene centinela: el estado inicial sitúa a cada árbitro en su domicilio y libre desde
+    `disponibilidad_inicio`.
+  - `kMaxArbitros = 300` es **capacidad de compilación**, no el número real. `n_arbitros` es de
+    ejecución y solo se usa `[0, n_arbitros)`. Los huecos sin usar son ceros y no deben recorrerse:
+    un hueco a cero parece un árbitro válido (sede 0, minuto 0).
+  - La ejecución es **por días** (viernes, sábado y domingo independientes y en paralelo). Se acordó
+    **compactar árbitros por día**: el estado indexa `0..N_dia-1`, no los ids globales.
+  - `domain::Estado` con `asignaciones`, `ultima_sede_arbitro` y `franja_ocupada_arbitro` queda
+    **obsoleto** y pendiente de decidir si se elimina o se conserva como tipo solución.
 
 ## Conceptos pendientes de modelar
 
-- **Franja horaria**: no existe una entidad `Franja` en el dominio; falta definir cómo se obtiene el
-  id de franja a partir de `Partido.inicio`/`Partido.final` (o usar el índice del partido como franja).
+- **Tiempo de viaje**: `Sede` no tiene coordenadas ni existe una matriz de viaje. Hay que decidir si
+  la instancia la trae o se calcula a partir de coordenadas.
+- **Franja horaria**: el estado continuo (`minuto_liberacion`) la sustituye; no se modela como entidad.
+- **Plazas sin cubrir**: falta decidir si se permiten y con qué penalización.
+- **Tiempo muerto**: falta decidir si cuenta antes del primer partido y después del último.
+- **Representación del coste**: `Plaza::retribucion` es `double`; decidir céntimos frente a coma
+  flotante para que las comparaciones sean exactas.
 
 ## Ideas de optimización (aplazadas)
 
-- Agregado `Instancia` que posea los vectores contiguos de `Equipo`, `Sede`, `Arbitro`, `Partido` y `Plaza`.
+- Agregado `Instancia` que posea los vectores contiguos de `Equipo`, `Sede`, `Arbitro`, `Partido` y
+  `Plaza`.
 - Matriz plana (row-major) de tiempos de viaje entre sedes, precalculada al cargar la instancia.
 - Vetos como bitmask (`std::vector<uint64_t>` o `std::bitset`) para factibilidad O(1).
 - Referencias por índice posicional en lugar de por `id`, con mapeo id -> índice en la carga.
-- Structs/trivialmente copiables para permitir `memcpy` y mejorar localidad de caché.
+- Arena por bloques para los estados, con punteros estables.
+- Copiar solo `4 · N_dia` bytes del estado cuando se compacta por día.
+- Structs/trivialmente copiables para permitir `memcpy` y mejorar localidad de caché. _Adoptado en
+  `algorithms::Estado`._

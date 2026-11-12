@@ -19,6 +19,15 @@ target_include_directories(referee_scheduler_domain
         ${PROJECT_SOURCE_DIR}/include
 )
 
+# Los algoritmos de búsqueda son header-only por ahora y dependen del modelo
+# de dominio (ids, entidades). Este target propaga el include dir común.
+add_library(referee_scheduler_algorithms INTERFACE)
+
+target_link_libraries(referee_scheduler_algorithms
+    INTERFACE
+        referee_scheduler_domain
+)
+
 add_executable(referee_scheduler
     src/main.cpp
 )
