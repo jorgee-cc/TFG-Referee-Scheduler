@@ -11,8 +11,12 @@ namespace referee_scheduler::algorithms
     /// Número máximo de árbitros que puede representar un estado.
     ///
     /// Fijarlo en tiempo de compilación es lo que permite que `Estado` sea
-    /// trivially copyable y que copiarlo sea un único memcpy de 1200 B.
-    inline constexpr std::size_t kMaxArbitros = 300;
+    /// trivially copyable y que copiarlo sea un único memcpy de 2400 B.
+    ///
+    /// Es solo la **capacidad**: el número real del día es `n_arbitros` (dato de
+    /// ejecución) y la búsqueda recorre únicamente `[0, n_arbitros)`. Las ranuras
+    /// sobrantes no se leen ni se copian.
+    inline constexpr std::size_t kMaxArbitros = 600;
 
     /// Un árbitro empaquetado en 4 bytes.
     ///
@@ -47,19 +51,24 @@ namespace referee_scheduler::algorithms
     static_assert(std::is_trivially_copyable_v<EstadoArbitro>,
                   "EstadoArbitro debe poder copiarse con memcpy");
 
-    /// Estado físico completo de un día: 300 árbitros * 4 B = 1200 B.
+    /// Estado físico de capacidad máxima: 600 árbitros * 4 B = 2400 B.
     ///
     /// Es la única información dinámica que necesita la búsqueda. Cada árbitro
     /// ocupa 4 B, de modo que 16 árbitros caben exactamente en una línea de
-    /// caché de 64 B y el estado completo ocupa 19 líneas.
+    /// caché de 64 B y el estado completo ocupa 37 líneas y media (38 líneas).
+    ///
+    /// Este tipo es la vista de **capacidad máxima** (construir el estado inicial,
+    /// depurar, tests). El almacenamiento de los nodos de búsqueda lo hace
+    /// `algorithms::Arena`, que reserva solo `4 * n_arbitros` bytes por nodo y
+    /// nunca toca `[n_arbitros, kMaxArbitros)`.
     struct Estado
     {
         /// Un registro por árbitro, indexado por su id.
         std::array<EstadoArbitro, kMaxArbitros> arbitros{};
     };
 
-    static_assert(sizeof(Estado) == 1200,
-                  "Estado debe ocupar exactamente 1200 B");
+    static_assert(sizeof(Estado) == 2400,
+                  "Estado debe ocupar exactamente 2400 B");
     static_assert(std::is_trivially_copyable_v<Estado>,
                   "Estado debe poder copiarse con memcpy");
 

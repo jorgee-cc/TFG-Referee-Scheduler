@@ -24,8 +24,8 @@ void comprobar(bool condicion, const char* mensaje) {
 int main() {
     // Garantías de layout: el estado debe seguir siendo denso y copiable.
     static_assert(sizeof(EstadoArbitro) == 4);
-    static_assert(sizeof(Estado) == 1200);
-    static_assert(referee_scheduler::algorithms::kMaxArbitros == 300);
+    static_assert(sizeof(Estado) == 2400);
+    static_assert(referee_scheduler::algorithms::kMaxArbitros == 600);
 
     // El estado nace a cero: ningún árbitro tiene sede, tiempo ni reserva.
     Estado estado{};

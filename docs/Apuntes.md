@@ -21,20 +21,32 @@ estado, frontera de búsqueda, datos estáticos, ensamblado de Dijkstra y valida
 - **El estado de búsqueda** vive en `algorithms::Estado` (`include/referee_scheduler/algorithms/estado.hpp`):
   - `EstadoArbitro` ocupa 4 B: `sede_id` (10 bits), `minuto_liberacion` (11 bits) y `reservado`
     (11 bits). 10 + 11 + 11 = 32; `static_assert` fija `sizeof(EstadoArbitro) == 4`.
-  - `Estado` es `std::array<EstadoArbitro, 300>` = 1200 B, trivialmente copiable y sin reservas
-    dinámicas. 16 árbitros caben en una línea de caché de 64 B y el estado completo ocupa 19 líneas.
+  - `Estado` es `std::array<EstadoArbitro, 600>` = 2400 B, trivialmente copiable y sin reservas
+    dinámicas. 16 árbitros caben en una línea de caché de 64 B y el estado completo ocupa 38 líneas.
   - Es la **mínima estadística suficiente** del pasado: dónde está cada árbitro, cuándo queda libre
     y 11 bits reservados. No guarda historial (equipos ya arbitrados, número de partidos, etc.).
   - `minuto_liberacion` es un minuto absoluto desde el `t0` del día; un día (1440 min) cabe en 11 bits.
   - La sede no tiene centinela: el estado inicial sitúa a cada árbitro en su domicilio y libre desde
     `disponibilidad_inicio`.
-  - `kMaxArbitros = 300` es **capacidad de compilación**, no el número real. `n_arbitros` es de
+  - `kMaxArbitros = 600` es **capacidad de compilación**, no el número real. `n_arbitros` es de
     ejecución y solo se usa `[0, n_arbitros)`. Los huecos sin usar son ceros y no deben recorrerse:
     un hueco a cero parece un árbitro válido (sede 0, minuto 0).
   - La ejecución es **por días** (viernes, sábado y domingo independientes y en paralelo). Se acordó
     **compactar árbitros por día**: el estado indexa `0..N_dia-1`, no los ids globales.
   - `domain::Estado` con `asignaciones`, `ultima_sede_arbitro` y `franja_ocupada_arbitro` queda
     **obsoleto** y pendiente de decidir si se elimina o se conserva como tipo solución.
+- **La arena de búsqueda** vive en `algorithms::Arena` (`include/referee_scheduler/algorithms/arena.hpp`):
+  - Cada nodo es un bloque contiguo de `24 + 4·n_arbitros` bytes: `CabeceraNodo` (24 B) + un
+    `EstadoArbitro` por árbitro. El *stride* se calcula en ejecución y se redondea a 8 B.
+  - `CabeceraNodo`: `coste_g` (int64), `padre`, `nivel`, `flags`, `reservado`; 24 B exactos porque
+    entran en la fórmula del bloque. `kSinNodo` = "sin padre".
+  - Recibe `n_arbitros` en el constructor (no depende del cargador ni de `Instancia`).
+  - `estado(nodo)` devuelve un `std::span` de longitud `n_arbitros`: no se puede iterar el relleno.
+    `crear(Estado, ...)` copia solo `[0, n_arbitros)` e ignora la cola.
+  - Direcciones estables: bloques de 64 KiB en `unique_ptr`, nunca se mueven; el crecimiento duplica
+    bloques y es amortizado. La arena no es copiable, sí movible.
+  - Optimizaciones de hardware estudiadas (zeroing, división, hugepages/TLB): **no implementadas**,
+    documentadas en `docs/optimizaciones.md` para cuando el algoritmo funcione y se pueda medir.
 
 ## Conceptos pendientes de modelar
 
