@@ -21,3 +21,16 @@ target_link_libraries(referee_scheduler_arena_tests
 )
 
 add_test(NAME referee_scheduler_arena COMMAND referee_scheduler_arena_tests)
+
+# La función objetivo tiene sus propias pruebas: épsilon, espera gratis en
+# casa, ajuste de retorno, llegada tarde y plazas vacías.
+add_executable(referee_scheduler_objetivo_tests
+    test_objetivo.cpp
+)
+
+target_link_libraries(referee_scheduler_objetivo_tests
+    PRIVATE
+        referee_scheduler_algorithms
+)
+
+add_test(NAME referee_scheduler_objetivo COMMAND referee_scheduler_objetivo_tests)

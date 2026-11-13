@@ -2,16 +2,16 @@
 
 Academic C++20 project (TFG): search algorithms for the Referee Assignment Problem (RAP).
 Goal: maximize retribution per hour worked by reducing travel and idle ("tiempos muertos") time.
-The domain model, `src/main.cpp`, the packed search state (`algorithms/estado.hpp`), the state arena (`algorithms/arena.hpp`) and their tests are the real code so far.
+The domain model, `src/main.cpp`, the packed search state (`algorithms/estado.hpp`), the state arena (`algorithms/arena.hpp`), the objective function (`algorithms/objetivo.hpp`) and their tests are the real code so far.
 
 ## Build & verify
 
 - Intended build (README): `cmake -S . -B build && cmake --build build && ctest --test-dir build`
 - `cmake` is NOT installed in this environment. Verify manually instead:
   - Main: `g++ -std=c++20 -Wall -Wextra -Wpedantic -Iinclude src/main.cpp -o /tmp/opencode/referee_scheduler`
-  - Tests (two executables, both must pass): `g++ -std=c++20 -Wall -Wextra -Wpedantic -Iinclude tests/test_smoke.cpp -o /tmp/opencode/referee_scheduler_tests && /tmp/opencode/referee_scheduler_tests` and `g++ -std=c++20 -Wall -Wextra -Wpedantic -Iinclude tests/test_arena.cpp -o /tmp/opencode/referee_scheduler_arena_tests && /tmp/opencode/referee_scheduler_arena_tests`
+  - Tests (three executables, all must pass): `g++ -std=c++20 -Wall -Wextra -Wpedantic -Iinclude tests/test_smoke.cpp -o /tmp/opencode/referee_scheduler_tests && /tmp/opencode/referee_scheduler_tests`, `... tests/test_arena.cpp -o /tmp/opencode/referee_scheduler_arena_tests && /tmp/opencode/referee_scheduler_arena_tests` and `... tests/test_objetivo.cpp -o /tmp/opencode/referee_scheduler_objetivo_tests && /tmp/opencode/referee_scheduler_objetivo_tests`.
   - Header-only checks: compile a temp `.cpp` that includes the headers.
-- `tests/CMakeLists.txt` registers `test_smoke.cpp` (test `referee_scheduler_smoke`) and `test_arena.cpp` (test `referee_scheduler_arena`). Keep them in sync.
+- `tests/CMakeLists.txt` registers `test_smoke.cpp` (test `referee_scheduler_smoke`), `test_arena.cpp` (test `referee_scheduler_arena`) and `test_objetivo.cpp` (test `referee_scheduler_objetivo`). Keep them in sync.
 
 ## Architecture
 
@@ -52,12 +52,22 @@ The domain model, `src/main.cpp`, the packed search state (`algorithms/estado.hp
 - Tests: `tests/test_arena.cpp` covers stride formula, n ∈ {1, 5, 300, 600}, copying only the prefix, span length, pointer stability across ~20 blocks and memory counters.
 - Studied micro-optimizations (zeroing, division, hugepages/TLB) are **not implemented**: see `docs/optimizaciones.md`. They will be explored once Dijkstra works and can be measured.
 
+## Objective function (decided, implemented)
+
+- `coste_asignar` and `coste_dejar_vacia` live in `include/referee_scheduler/algorithms/objetivo.hpp`: header-only, no allocations. They depend on `EstadoArbitro` and `domain::Rol`, never on `domain::Estado`. Lower cost is better (minimization).
+- Everything is counted in **integer cents** (`std::int64_t`); `a_centimos(double)` rounds euros to cents once. `kCentimosPorMinuto = 14` (8,4 €/h) and `kEpsilonCentimos = 1`; `ParametrosObjetivo` lets tests and future experiments override both.
+- Assignment cost: `ε + (tiempo_viaje + espera_facturable) · k + (retorno_nuevo − retorno_anterior) · k`. Waiting is free while the referee is at his domicile; the return adjustment is prospective and telescopes, so a chain of assignments pays one real return trip at the end and every edge stays `>= ε` with a metric matrix (Dijkstra-safe).
+- A late arrival (`llegada > minuto_inicio_plaza`) returns `nullopt`: the transition is infeasible and the generator must not create that child. Negative waits are never allowed to cheapen a route.
+- Covered plazas do **not** add their retribution: the objective charges only time. Leaving a plaza empty with `Rol::Principal` is forbidden (`nullopt`); any secondary role costs its full retribution in cents (no epsilon).
+- Future idea, **not implemented**: when the gap allows `ida + vuelta + 1 h en casa`, evaluate the same assignment "via home" (`sede = domicilio`, `liberacion += d(actual, domicilio)`) and keep the cheaper of the direct and via-home costs, so long gaps are charged as travel instead of dead time. Detailed in `docs/mejoras-practicas.md`; it needs the travel matrix and the transition generator.
+- Tests: `tests/test_objetivo.cpp` covers cents conversion, first match, en-route wait, positive/negative return adjustment, late arrival, custom k/ε and empty plazas.
+
 ## Roadmap / scope
 
 Agreed order:
 
 1. **Arena** for state storage: stable block storage; block size `24 + 4·n_arbitros` computed at run time; the arena receives `n_arbitros`, it does not depend on the loader. **v1 implemented** (`algorithms/arena.hpp`); v2 micro-optimizations deferred to `docs/optimizaciones.md`.
-2. **Objective function**: additive and positive; the user sets its parameter. Define the formula first; the travel lookup is filled in step 5.
+2. **Objective function**: additive and positive, in integer cents; `ε + tiempo · k` with k = 14 c/min, return-trip adjustment, and empty secondary plazas charged their lost retribution. **Implemented** (`algorithms/objetivo.hpp`); the travel lookup is filled in step 5.
 3. **State transitions and operations**: the 4-byte write per assignment; decision fields of the node.
 4. **Search frontier / open list**.
 5. **Static data**:
@@ -73,13 +83,10 @@ Agreed order:
 ## Known gaps / pending decisions
 
 - `Sede` has no coordinates and there is no travel-time matrix yet; the travel cost cannot be computed until this is decided (matrix in the instance vs coordinates + formula). Scheduled in step 5.
-- Unfilled plazas policy is undecided (skip transition with penalty?).
-- Idle time before the first match / after the last match is undecided.
-- `Plaza::retribucion` is `double`; the cost representation (cents vs double) is undecided.
 - `Arbitro::disponibilidad_*` are `time_t`; `t0` and the minute conversion (with clamping/validation) are pending.
 - `kMaxArbitros = 600` is a hard cap; if the real instance exceeds it, that is a bug.
 - Node budget / memory limit, tie-breaking/determinism, and the parallel mechanism for the three days are undefined.
-- Tests are a smoke test plus the arena suite; grow them as the objective/transitions land.
+- Tests cover smoke, arena and objective; grow them as the transitions land.
 - No benchmark or baseline yet; `docs/optimizaciones.md` proposes a minimal arena benchmark to be added once the search runs.
 
 ## Rules
