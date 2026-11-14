@@ -1,13 +1,15 @@
 // Pruebas de la construcción de los datos estáticos, una por fase.
 // Cubre de momento la fase 1 (partición por fecha civil), la fase 2
-// (compactación de árbitros) y las utilidades de `tiempo.hpp` que usan: fecha
-// civil local, minuto del día, índice de día y recorte de disponibilidades.
-// Es el ejecutable `referee_scheduler_instancia_tests` de CTest.
+// (compactación de árbitros), la fase 3 (matriz de distancias) y las utilidades
+// de `tiempo.hpp` que usan: fecha civil local, minuto del día, índice de día y
+// recorte de disponibilidades. Es el ejecutable
+// `referee_scheduler_instancia_tests` de CTest.
 
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
 #include <iostream>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -19,12 +21,21 @@ namespace
 {
 
     using referee_scheduler::algorithms::ArbitroDia;
+    using referee_scheduler::algorithms::Coordenada;
     using referee_scheduler::algorithms::DiaCivil;
     using referee_scheduler::algorithms::GrupoDia;
+    using referee_scheduler::algorithms::InstanciaDia;
+    using referee_scheduler::algorithms::Minutos;
+    using referee_scheduler::algorithms::OpcionesDistancias;
+    using referee_scheduler::algorithms::ProveedorDistancias;
     using referee_scheduler::algorithms::agrupar_por_dia;
+    using referee_scheduler::algorithms::cerrar_metricamente;
     using referee_scheduler::algorithms::compactar_arbitros;
+    using referee_scheduler::algorithms::construir_instancia_dia;
+    using referee_scheduler::algorithms::construir_instancias;
     using referee_scheduler::algorithms::dia_de;
     using referee_scheduler::algorithms::indice_dia;
+    using referee_scheduler::algorithms::kMinutosInalcanzable;
     using referee_scheduler::algorithms::kMinutosPorDia;
     using referee_scheduler::algorithms::minuto_absoluto;
     using referee_scheduler::algorithms::minuto_del_dia;
@@ -32,6 +43,7 @@ namespace
     using referee_scheduler::domain::Arbitro;
     using referee_scheduler::domain::Instancia;
     using referee_scheduler::domain::Partido;
+    using referee_scheduler::domain::Sede;
 
     int fallos = 0;
 
@@ -87,6 +99,63 @@ namespace
         return a;
     }
 
+    /// Sede geolocalizada de forma determinista: el id hace de latitud y su
+    /// negativo de longitud, así se puede comprobar el orden de las coordenadas.
+    Sede sede(int id)
+    {
+        Sede s;
+        s.id = id;
+        s.latitud = static_cast<double>(id);
+        s.longitud = -static_cast<double>(id);
+        return s;
+    }
+
+    /// Proveedor de distancias que devuelve siempre la matriz guionizada.
+    ///
+    /// Guarda las coordenadas recibidas para poder comprobar que la
+    /// compactación las pasó en orden ascendente de id.
+    class ProveedorGuionizado : public ProveedorDistancias
+    {
+    public:
+        explicit ProveedorGuionizado(std::vector<Minutos> valores)
+            : valores_(std::move(valores))
+        {
+        }
+
+        std::vector<Minutos>
+        matriz_minutos(std::span<const Coordenada> coordenadas) override
+        {
+            recibidas.assign(coordenadas.begin(), coordenadas.end());
+            return valores_;
+        }
+
+        /// Coordenadas que recibió en la última llamada.
+        std::vector<Coordenada> recibidas;
+
+    private:
+        std::vector<Minutos> valores_;
+    };
+
+    /// Proveedor que devuelve la misma distancia en todas las parejas.
+    ///
+    /// Sirve para construir varios días con tamaños de matriz distintos sin
+    /// tener que preparar una matriz por día.
+    class ProveedorConstante : public ProveedorDistancias
+    {
+    public:
+        explicit ProveedorConstante(Minutos valor) : valor_(valor) {}
+
+        std::vector<Minutos>
+        matriz_minutos(std::span<const Coordenada> coordenadas) override
+        {
+            return std::vector<Minutos>(coordenadas.size() * coordenadas.size(),
+                                        valor_);
+        }
+
+    private:
+        Minutos valor_;
+    };
+
     /// Comprueba que un grupo contiene exactamente `esperados`, en ese orden.
     bool contiene(const GrupoDia &grupo, const std::vector<std::size_t> &esperados)
     {
@@ -132,14 +201,14 @@ int main()
 
     // Descomposición de un instante local (ida y vuelta con mktime).
     const std::time_t viernes_tarde = instante(2026, 11, 13, 18, 5);
-    const DiaCivil dia_viernes = dia_de(viernes_tarde);
-    comprobar(dia_viernes == DiaCivil{2026, 11, 13},
+    const DiaCivil fecha_viernes = dia_de(viernes_tarde);
+    comprobar(fecha_viernes == DiaCivil{2026, 11, 13},
               "dia_de debe devolver la fecha local del instante");
     comprobar(minuto_del_dia(viernes_tarde) == 18 * 60 + 5,
               "minuto_del_dia debe devolver 18:05 como 1085");
 
     // Minutos relativos a un día, con recorte.
-    comprobar(minuto_en_dia(viernes_tarde, dia_viernes) == 1085,
+    comprobar(minuto_en_dia(viernes_tarde, fecha_viernes) == 1085,
               "el mismo día debe dar el minuto del día");
     comprobar(minuto_en_dia(viernes_tarde, DiaCivil{2026, 11, 12}) ==
                   kMinutosPorDia,
@@ -147,7 +216,7 @@ int main()
     comprobar(minuto_en_dia(viernes_tarde, DiaCivil{2026, 11, 14}) == 0,
               "un instante anterior al día debe recortarse a 0");
     comprobar(minuto_absoluto(viernes_tarde) ==
-                  indice_dia(dia_viernes) * kMinutosPorDia + 1085,
+                  indice_dia(fecha_viernes) * kMinutosPorDia + 1085,
               "minuto_absoluto debe componer índice de día y minuto");
 
     // Un día completo cabe en los 11 bits del estado.
@@ -247,32 +316,44 @@ int main()
     instancia.partidos[4].equipo_local_id = 106;
     instancia.partidos[4].equipo_visitante_id = 107;
 
+    // Sedes de los partidos: dos el viernes, una el sábado y una el domingo.
+    instancia.partidos[0].sede_id = 10;
+    instancia.partidos[1].sede_id = 11;
+    instancia.partidos[3].sede_id = 12;
+    instancia.partidos[2].sede_id = 20;
+    instancia.partidos[4].sede_id = 21;
+
+    // Las sedes se meten desordenadas a propósito: la fase 3 debe compactarlas
+    // por id ascendente (10, 11, 12, 13, 20, 21).
+    instancia.sedes = {sede(13), sede(10), sede(21),
+                       sede(11), sede(20), sede(12)};
+
     // Se meten a propósito desordenados y con ids no consecutivos: el resultado
     // debe salir ordenado por id global y los ids compactos deben ser 0..N-1.
     instancia.arbitros.push_back(arbitro(
-        30, 2, 1, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 23, 0),
+        30, 2, 10, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 23, 0),
         {100, 999, 100}));
     instancia.arbitros.push_back(arbitro(
-        10, 1, 2, instante(2026, 11, 14, 9, 0), instante(2026, 11, 14, 23, 0),
+        10, 1, 11, instante(2026, 11, 14, 9, 0), instante(2026, 11, 14, 23, 0),
         {}));
     // Empieza el jueves: solo puede coger los primeros partidos del viernes.
     instancia.arbitros.push_back(arbitro(
-        50, 3, 1, instante(2026, 11, 12, 18, 0), instante(2026, 11, 13, 1, 0),
+        50, 3, 12, instante(2026, 11, 12, 18, 0), instante(2026, 11, 13, 1, 0),
         {}));
     // De viernes 23:00 a sábado 23:00: entra en los dos días.
     instancia.arbitros.push_back(arbitro(
-        20, 2, 2, instante(2026, 11, 13, 23, 0), instante(2026, 11, 14, 23, 0),
+        20, 2, 13, instante(2026, 11, 13, 23, 0), instante(2026, 11, 14, 23, 0),
         {}));
     instancia.arbitros.push_back(arbitro(
-        40, 1, 2, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 18, 0),
+        40, 1, 10, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 18, 0),
         {}));
     // Ventana invertida: dato inválido, no debe entrar en ningún día.
     instancia.arbitros.push_back(arbitro(
-        60, 1, 2, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 9, 0),
+        60, 1, 10, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 9, 0),
         {}));
     // Solo el miércoles anterior: no toca ninguna jornada del fin de semana.
     instancia.arbitros.push_back(arbitro(
-        70, 1, 2, instante(2026, 11, 11, 9, 0), instante(2026, 11, 11, 20, 0),
+        70, 1, 10, instante(2026, 11, 11, 9, 0), instante(2026, 11, 11, 20, 0),
         {}));
 
     const std::vector<ArbitroDia> viernes = compactar_arbitros(instancia, grupos[0]);
@@ -352,9 +433,159 @@ int main()
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Fase 3: matriz de distancias
+    // ---------------------------------------------------------------------
+
+    const OpcionesDistancias con_cierre; // cerrar_metricamente = true
+    OpcionesDistancias sin_cierre;
+    sin_cierre.cerrar_metricamente = false;
+
+    // Matriz asimétrica y con la diagonal "mala" a propósito. El camino
+    // 0->3->2 (5 + 12) incumple la desigualdad triangular frente a 0->2 (100).
+    ProveedorGuionizado proveedor_viernes({
+        999, 10, 100, 5,
+        12, 999, 10, 6,
+        7, 8, 999, 50,
+        9, 11, 12, 999});
+
+    const InstanciaDia dia_viernes = construir_instancia_dia(
+        instancia, grupos[0], proveedor_viernes, con_cierre);
+
+    // Sedes del viernes: las de los partidos (10, 11, 12) más el domicilio 13.
+    comprobar(dia_viernes.n_sedes() == 4,
+              "el viernes debe compactar cuatro sedes");
+    comprobar(dia_viernes.sede_global == std::vector<int>{10, 11, 12, 13},
+              "las sedes se compactan por id ascendente");
+    comprobar(proveedor_viernes.recibidas.size() == 4,
+              "el proveedor debe recibir una coordenada por sede");
+    if (proveedor_viernes.recibidas.size() == 4)
+    {
+        comprobar(proveedor_viernes.recibidas[0].latitud == 10.0,
+                  "la primera coordenada es la sede de menor id");
+        comprobar(proveedor_viernes.recibidas[3].latitud == 13.0,
+                  "la última coordenada es la sede de mayor id");
+        comprobar(proveedor_viernes.recibidas[0].longitud == -10.0,
+                  "la longitud se pasa tal cual");
+    }
+
+    // Diagonal forzada a 0 aunque el proveedor devuelva otra cosa.
+    comprobar(dia_viernes.viaje(0, 0) == 0, "la diagonal debe ser cero (1)");
+    comprobar(dia_viernes.viaje(1, 1) == 0, "la diagonal debe ser cero (2)");
+    comprobar(dia_viernes.viaje(2, 2) == 0, "la diagonal debe ser cero (3)");
+    comprobar(dia_viernes.viaje(3, 3) == 0, "la diagonal debe ser cero (4)");
+
+    // La matriz no se espeja: cada sentido tiene su tiempo.
+    comprobar(dia_viernes.viaje(0, 1) == 10, "tiempo directo 0->1");
+    comprobar(dia_viernes.viaje(1, 0) == 12, "tiempo directo 1->0");
+    comprobar(dia_viernes.viaje(2, 0) == 7, "tiempo directo 2->0");
+
+    // Con cierre, 0->2 baja a 5 + 12 = 17 pasando por la sede 3.
+    comprobar(dia_viernes.viaje(0, 2) == 17,
+              "el cierre metrico debe encontrar el camino 0->3->2");
+
+    // Sin cierre, la celda se queda como la dio el proveedor.
+    ProveedorGuionizado proveedor_sin_cierre({
+        999, 10, 100, 5,
+        12, 999, 10, 6,
+        7, 8, 999, 50,
+        9, 11, 12, 999});
+    const InstanciaDia dia_sin_cierre = construir_instancia_dia(
+        instancia, grupos[0], proveedor_sin_cierre, sin_cierre);
+    comprobar(dia_sin_cierre.viaje(0, 2) == 100,
+              "sin cierre la matriz es exactamente la del proveedor");
+    comprobar(dia_sin_cierre.viaje(1, 0) == 12,
+              "sin cierre tampoco se espeja la matriz");
+
+    // Domicilios compactados: árbitros [20, 30, 40, 50] viven en las sedes
+    // [13, 10, 10, 12], que son los índices [3, 0, 0, 2].
+    comprobar(dia_viernes.n_arbitros() == 4,
+              "el viernes conserva sus cuatro árbitros");
+    if (dia_viernes.n_arbitros() == 4)
+    {
+        comprobar(dia_viernes.arbitros[0].sede_domicilio == 3,
+                  "domicilio compacto del árbitro 20");
+        comprobar(dia_viernes.arbitros[1].sede_domicilio == 0,
+                  "domicilio compacto del árbitro 30");
+        comprobar(dia_viernes.arbitros[2].sede_domicilio == 0,
+                  "domicilio compacto del árbitro 40");
+        comprobar(dia_viernes.arbitros[3].sede_domicilio == 2,
+                  "domicilio compacto del árbitro 50");
+    }
+
+    // Una pareja sin ruta sigue siendo inalcanzable después del cierre.
+    {
+        Instancia aislada;
+        aislada.partidos.push_back(partido(
+            0, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 19, 0)));
+        aislada.partidos[0].sede_id = 1;
+        aislada.arbitros.push_back(arbitro(
+            1, 1, 2, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 20, 0),
+            {}));
+        aislada.sedes = {sede(1), sede(2)};
+
+        ProveedorGuionizado inalcanzable(
+            {0, kMinutosInalcanzable, kMinutosInalcanzable, 0});
+        const std::vector<GrupoDia> grupos_aislados = agrupar_por_dia(aislada);
+
+        const InstanciaDia dia_aislado = construir_instancia_dia(
+            aislada, grupos_aislados[0], inalcanzable, con_cierre);
+        comprobar(dia_aislado.viaje(0, 1) == kMinutosInalcanzable,
+                  "sin ruta de ida debe quedar inalcanzable");
+        comprobar(dia_aislado.viaje(1, 0) == kMinutosInalcanzable,
+                  "sin ruta de vuelta debe quedar inalcanzable");
+    }
+
+    // Cierre métrico aislado: usa el puente 0->1->2 y no inventa la vuelta.
+    {
+        std::vector<Minutos> puente = {
+            0, 10, kMinutosInalcanzable,
+            kMinutosInalcanzable, 0, 10,
+            kMinutosInalcanzable, kMinutosInalcanzable, 0};
+        cerrar_metricamente(puente, 3);
+
+        comprobar(puente[0 * 3 + 2] == 20,
+                  "el cierre debe encontrar el camino 0->1->2");
+        comprobar(puente[1 * 3 + 0] == kMinutosInalcanzable,
+                  "el cierre no debe inventar el camino inverso");
+        comprobar(puente[0] == 0 && puente[4] == 0 && puente[8] == 0,
+                  "el cierre no debe tocar la diagonal");
+    }
+
+    // Pipeline completo de las fases 1-3 para las tres jornadas.
+    {
+        ProveedorConstante constante(7);
+        const std::vector<InstanciaDia> dias =
+            construir_instancias(instancia, constante);
+
+        comprobar(dias.size() == 3, "deben construirse las tres jornadas");
+        if (dias.size() == 3)
+        {
+            comprobar(dias[0].dia == DiaCivil{2026, 11, 13},
+                      "la primera jornada es el viernes");
+            comprobar(dias[1].dia == DiaCivil{2026, 11, 14},
+                      "la segunda jornada es el sábado");
+            comprobar(dias[2].dia == DiaCivil{2026, 11, 15},
+                      "la tercera jornada es el domingo");
+
+            // Sedes: viernes 10/11/12 + domicilio 13; sábado 20 + domicilios
+            // 11/13; domingo solo la sede 21 (sin árbitros).
+            comprobar(dias[0].n_sedes() == 4, "sedes del viernes");
+            comprobar(dias[1].n_sedes() == 3, "sedes del sábado");
+            comprobar(dias[2].n_sedes() == 1, "sedes del domingo");
+            comprobar(dias[2].n_arbitros() == 0,
+                      "el domingo no tiene árbitros disponibles");
+
+            comprobar(dias[0].viaje(0, 1) == 7,
+                      "la matriz constante se copia a cada día");
+            comprobar(dias[0].viaje(0, 0) == 0,
+                      "la diagonal sigue a cero con el proveedor constante");
+        }
+    }
+
     if (fallos == 0)
     {
-        std::cout << "test_instancia (fases 1-2): OK\n";
+        std::cout << "test_instancia (fases 1-3): OK\n";
     }
     return fallos == 0 ? 0 : 1;
 }

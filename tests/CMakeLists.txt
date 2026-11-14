@@ -53,3 +53,18 @@ target_link_libraries(referee_scheduler_instancia_tests
 )
 
 add_test(NAME referee_scheduler_instancia COMMAND referee_scheduler_instancia_tests)
+
+# El cliente OSRM se prueba sin red (conversión, parseo del JSON y URL). Solo
+# se registra si libcurl estaba disponible al configurar CMake.
+if(TARGET referee_scheduler_io)
+    add_executable(referee_scheduler_osrm_tests
+        test_osrm.cpp
+    )
+
+    target_link_libraries(referee_scheduler_osrm_tests
+        PRIVATE
+            referee_scheduler_io
+    )
+
+    add_test(NAME referee_scheduler_osrm COMMAND referee_scheduler_osrm_tests)
+endif()

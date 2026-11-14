@@ -75,11 +75,22 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
   inicio** del partido, no su final. Hasta las 23:00 permite empezar a las 23:00 aunque acabe
   después de medianoche. El inicio declarado se interpreta como "disponible en su domicilio desde
   esa hora", así que el primer desplazamiento se cobra desde ahí.
-- **Fase 3 (siguiente)**: `ProveedorDistancias` en `algorithms/` y `OsrmDistancias` en `io/`
-  (libcurl, lotes de 100 coordenadas, `lon,lat`, `null` → inalcanzable, caché en
-  `data/generated/`). Sedes compactadas a `0..M-1` (sedes de partidos ∪ domicilios). Matriz
-  **completa y asimétrica** (OSRM da tiempos distintos por sentido), diagonal 0,
-  `ceil(segundos/60)` y cierre métrico opcional con Floyd-Warshall.
+- **Fase 3, matriz de distancias (implementada)**:
+  - `algorithms::ProveedorDistancias` (interfaz) con `Coordenada`, `Minutos = uint16_t` y
+    `kMinutosInalcanzable = 65534`.
+  - `construir_matriz_distancias` compacta las sedes del día (sedes de partidos ∪ domicilios de
+    árbitros) a `0..M-1` por id ascendente, exige `M <= 1024` (10 bits del estado), pide la matriz
+    completa, fuerza la diagonal a 0 y aplica el cierre métrico si se pide. También rellena
+    `ArbitroDia::sede_domicilio` con el índice compacto.
+  - La matriz es **completa y asimétrica**: OSRM da tiempos distintos por sentido (verificado), así
+    que no se espeja. `ceil(segundos/60)` conserva la desigualdad triangular. `cerrar_metricamente`
+    (Floyd-Warshall, sumas en `uint32`, los inalcanzables no hacen de puente) la impone por si la
+    red real la incumple.
+  - Cliente `io::OsrmDistancias` (`io/osrm.hpp` + `src/io/osrm.cpp`): libcurl, URL con `lon,lat` y 6
+    decimales, lotes de 100×100 (el límite del servidor es de **dimensiones de tabla**, no de
+    coordenadas en la URL: 200 coordenadas con tabla 100×100 funciona), `null` → inalcanzable y
+    caché con hash FNV-1a en `data/generated/distancias_<hash>.txt`.
+  - `construir_instancia_dia` (fases 1-3) y `construir_instancias` (una por fecha).
 - **Fases 4-5 (pendientes)**: `PlazaDia` ordenadas por `(inicio, sede, partido, plaza)` con
   `es_principal`, y listas de candidatos en CSR con filtros de nivel, ventana, veto y
   alcanzabilidad desde el domicilio.
@@ -98,7 +109,7 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
 - Agregado `Instancia` con los vectores contiguos de `Equipo`, `Sede`, `Arbitro`, `Partido` y
   `Plaza`. _Adoptado en `domain::Instancia`._
 - Matriz plana (row-major) de tiempos de viaje entre sedes, precalculada una vez por día.
-  _Fase 3._
+  _Adoptado en `InstanciaDia::distancias`._
 - Vetos como bitmask (`std::vector<uint64_t>` o `std::bitset`) para factibilidad O(1). Aplazado:
   de momento son ids ordenados con búsqueda binaria al construir las listas de candidatos.
 - Referencias por índice posicional en lugar de por `id`, con mapeo id -> índice en la carga.

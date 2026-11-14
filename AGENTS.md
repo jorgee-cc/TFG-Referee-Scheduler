@@ -2,28 +2,31 @@
 
 Academic C++20 project (TFG): search algorithms for the Referee Assignment Problem (RAP).
 Goal: maximize retribution per hour worked by reducing travel and idle ("tiempos muertos") time.
-The domain model, `src/main.cpp`, the packed search state (`algorithms/estado.hpp`), the state arena (`algorithms/arena.hpp`), the objective function (`algorithms/objetivo.hpp`), the static-data construction (`algorithms/tiempo.hpp`, `algorithms/instancia_dia.hpp`, `algorithms/construir_instancia.hpp` and their `.cpp`) and their tests are the real code so far.
+The domain model, `src/main.cpp`, the packed search state (`algorithms/estado.hpp`), the state arena (`algorithms/arena.hpp`), the objective function (`algorithms/objetivo.hpp`), the static-data construction (`algorithms/tiempo.hpp`, `algorithms/instancia_dia.hpp`, `algorithms/construir_instancia.hpp`, `algorithms/proveedor_distancias.hpp`), the OSRM client (`io/osrm.hpp`) and their tests are the real code so far.
 
 ## Build & verify
 
 - Intended build (README): `cmake -S . -B build && cmake --build build && ctest --test-dir build`
 - `cmake` is NOT installed in this environment. Verify manually instead:
   - Main: `g++ -std=c++20 -Wall -Wextra -Wpedantic -Iinclude src/main.cpp -o /tmp/opencode/referee_scheduler`
-  - Tests (four executables, all must pass). Any test that touches the static-data code must compile the library sources too (`src/algorithms/*.cpp`):
+  - Tests (five executables, all must pass). Any test that touches the static-data code must compile the library sources too (`src/algorithms/*.cpp`):
     - `g++ -std=c++20 -Wall -Wextra -Wpedantic -Iinclude tests/test_smoke.cpp -o /tmp/opencode/t_smoke && /tmp/opencode/t_smoke`
     - `g++ ... -Iinclude src/algorithms/*.cpp tests/test_arena.cpp -o /tmp/opencode/t_arena && /tmp/opencode/t_arena`
     - `g++ ... -Iinclude src/algorithms/*.cpp tests/test_objetivo.cpp -o /tmp/opencode/t_obj && /tmp/opencode/t_obj`
     - `g++ ... -Iinclude src/algorithms/*.cpp tests/test_instancia.cpp -o /tmp/opencode/t_inst && /tmp/opencode/t_inst`
+    - OSRM (needs libcurl): `g++ -std=c++20 -Wall -Wextra -Wpedantic -Iinclude $(pkg-config --cflags libcurl) src/algorithms/*.cpp src/io/osrm.cpp tests/test_osrm.cpp -o /tmp/opencode/t_osrm $(pkg-config --libs libcurl) && /tmp/opencode/t_osrm`
   - Header-only checks: compile a temp `.cpp` that includes the headers.
-- `tests/CMakeLists.txt` registers `test_smoke.cpp` (`referee_scheduler_smoke`), `test_arena.cpp` (`referee_scheduler_arena`), `test_objetivo.cpp` (`referee_scheduler_objetivo`) and `test_instancia.cpp` (`referee_scheduler_instancia`). Keep them in sync.
-- The OSRM client (phase 3) needs `libcurl4-openssl-dev`, **not installed yet** (`sudo apt install libcurl4-openssl-dev`). Until then, only the in-memory construction and a fake distance provider can be built; CMake must treat the OSRM target as optional (`find_package(CURL)`).
+- `tests/CMakeLists.txt` registers `test_smoke.cpp` (`referee_scheduler_smoke`), `test_arena.cpp` (`referee_scheduler_arena`), `test_objetivo.cpp` (`referee_scheduler_objetivo`), `test_instancia.cpp` (`referee_scheduler_instancia`) and, only if `referee_scheduler_io` exists, `test_osrm.cpp` (`referee_scheduler_osrm`). Keep them in sync.
+- `libcurl4-openssl-dev` **is installed** (headers in `/usr/include/x86_64-linux-gnu/curl/`). CMake finds it with `find_package(CURL QUIET)`; without it, the project still builds and only `referee_scheduler_io` + the OSRM test are skipped.
+- Manual network check (not in CTest): `g++ ... src/io/osrm.cpp src/algorithms/*.cpp examples/osrm_smoke.cpp ...` and run it from the repo root; it writes the cache in `data/generated/`.
 
 ## Architecture
 
 - Public headers in `include/referee_scheduler/{domain,algorithms,io}/`; implementations in matching `src/`; entrypoint `src/main.cpp`.
 - `referee_scheduler_domain` is an `INTERFACE` (header-only) CMake target. Domain entities have no `.cpp`; do not add one.
 - `referee_scheduler_algorithms` is a **`STATIC` target** (it stopped being `INTERFACE` when the static-data construction landed). It compiles `src/algorithms/*.cpp` and links `referee_scheduler_domain` PUBLIC. Header declarations stay in `include/`; logic goes in `src/`. Link it from anything that includes `algorithms/`.
-- `referee_scheduler_io` (to be created in phase 3) will hold the OSRM client and link `CURL` when available. `algorithms/` must never depend on `io/`: the dependency is inverted through the `ProveedorDistancias` interface, which lives in `algorithms/`.
+- `referee_scheduler_io` is a **`STATIC` target** (exists only if `find_package(CURL)` succeeds) that compiles `src/io/osrm.cpp`, links `referee_scheduler_algorithms` PUBLIC and `CURL::libcurl` PRIVATE. `algorithms/` never depends on `io/`: the dependency is inverted through `algorithms::ProveedorDistancias`, and the client implements it.
+- `examples/osrm_smoke.cpp` is a manual network check (`referee_scheduler_osrm_smoke`), not a CTest test.
 - All domain types are in `namespace referee_scheduler::domain`. Includes use the `referee_scheduler/domain/x.hpp` prefix (`-Iinclude` adds the root).
 - Search/algorithm types live in `namespace referee_scheduler::algorithms` (`include/referee_scheduler/algorithms/`). They must not depend on `domain::Estado`.
 
@@ -78,10 +81,12 @@ The design is five sequential phases that prepare the structures for the search.
 - **Phase 1, partition by day** (`GrupoDia`, `agrupar_por_dia`): groups `partidos` by the **civil date of `inicio`** (never `final`), returns days sorted and, inside a day, positions in input order. A Friday 23:30 match ending Saturday 01:00 belongs to Friday. Indices are `std::size_t` positions in `Instancia::partidos`, no copies.
 - **Phase 2, referee compaction** (`ArbitroDia`, `compactar_arbitros`): a referee belongs to the day if his availability window (in **absolute minutes**) contains a valid **start** minute of that day (`[dia*1440, dia*1440+1439]`). Comparing already-clamped minutes would wrongly include a referee available only the previous day. `primer_inicio`/`ultimo_inicio` are the window clamped to `[0, 1440]`; **1440 means no limit**. Result sorted by `id_global`, so the compacted id (vector index) is deterministic; the index is `0..N_dia-1`. `equipos_vetados` keeps only teams playing that day, sorted and deduplicated (binary search later).
 - **Availability semantics (user-decided)**: the declared end is a bound on the **match start**, not on the match end. Available until 23:00 ⇒ a match starting at 23:00 is allowed even if it ends after midnight. The declared start means "available at his domicile from then", so the first trip is charged from `primer_inicio`.
-- **Phase 3 (next, not implemented)**: `ProveedorDistancias` interface in `algorithms/` (`Coordenada`, `uint16_t` minutes, `kMinutosInalcanzable = 65534`); `OsrmDistancias` in `io/` (libcurl, batches of **100** coordinates, `sources`/`destinations` for larger sets, `lon,lat` order, `null` → unreachable, cache in `data/generated/`). Sedes are compacted per day to `0..M-1` (match sedes ∪ referee domiciles). The matrix is **full and asymmetric** (verified: OSRM gives different times per direction), never mirrored, diagonal forced to 0, `ceil(seconds/60)` (ceiling preserves the triangle inequality). Optional **Floyd–Warshall metric closure** (default on) because real road networks are not strictly metric and the objective needs `coste >= ε`.
+- **Phase 3, distance matrix — implemented**: `algorithms::ProveedorDistancias` (`algorithms/proveedor_distancias.hpp`) defines `Coordenada`, `Minutos = uint16_t` and `kMinutosInalcanzable = 65534`. `construir_matriz_distancias` compacts the day's sedes (**match sedes ∪ referee domiciles**) to `0..M-1` sorted by global id, asserts `M <= 1024` (10-bit `sede_id`), asks the provider for the **full matrix**, forces the diagonal to 0 and optionally applies `cerrar_metricamente` (Floyd–Warshall, `uint32` sums, unreachable cells never used as bridges). It also fills `ArbitroDia::sede_domicilio` with the compact index. `construir_instancia_dia` (phases 1–3) and `construir_instancias` exist. `OpcionesDistancias { bool cerrar_metricamente = true; }`.
+  - The OSRM client is `io/osrm.hpp` + `src/io/osrm.cpp`: `build_url` uses `lon,lat` with 6 decimals; the server limit is on **table dimensions** (verified: 100 rows × 100 cols with 200 coordinates in the URL returns 200), so it batches 100 sources × 100 destinations, keeps all coordinates in the URL, omits `sources`/`destinations` for the full matrix, parses `durations` with a minimal JSON scanner (`null` → unreachable, `ceil(sec/60)`), and caches with an **FNV-1a** key in `data/generated/distancias_<hash>.txt` (gitignored). Network/HTTP errors throw `std::runtime_error`; the constructor clamps `maximo_por_peticion` to ≥ 1.
+  - Tests: `test_instancia.cpp` (fake providers, asymmetric matrix, closure, unreachable, compacted domiciles, 3-day pipeline) and `test_osrm.cpp` (offline: conversion, JSON parsing, URL).
 - **Phase 4 (planned)**: expand partidos into `PlazaDia` sorted by `(minuto_inicio, sede, partido_id, plaza_id)`; index = tree level; `es_principal = (rol == Principal)`; carry `minuto_inicio`, `minuto_fin`, `nivel_requerido`, `retribucion_centimos` (`a_centimos` from `objetivo.hpp`) and both team ids.
 - **Phase 5 (planned)**: per-plaza candidate lists in a flat CSR (`std::vector<uint32_t>` + offsets of size `n_plazas()+1`). Filters: `nivel >= nivel_requerido`, `primer_inicio <= minuto_inicio <= ultimo_inicio`, no veto on either team, and **reachability** `primer_inicio + d(domicilio, sede) <= minuto_inicio` (plus `d != kMinutosInalcanzable`).
-- Tests: `tests/test_instancia.cpp` covers phases 1 and 2 (and the time utilities). It must grow one block per phase.
+- Tests: `tests/test_instancia.cpp` covers phases 1–3 (and the time utilities); it must grow one block per phase.
 
 ## Roadmap / scope
 
@@ -93,8 +98,8 @@ Agreed order:
 4. **Search frontier / open list**.
 5. **Static data**:
    a. In-memory instance (`n_arbitros`, `t0`, referees, matches, plazas). **Implemented**: `domain::Instancia`, `domain::Sede` coordinates.
-   b. Per-day referee compaction (global id -> `0..N_dia-1`); optional sede remap. **Referee compaction implemented** (`compactar_arbitros`); **sede compaction pending** (phase 3).
-   c. Travel-time matrix (or sede coordinates + formula). **Decided**: OSRM `/table`; pending implementation in phase 3.
+   b. Per-day referee compaction (global id -> `0..N_dia-1`) and sede remap. **Implemented**: `compactar_arbitros` and `construir_matriz_distancias`.
+   c. Travel-time matrix. **Implemented**: OSRM `/table` via `io::OsrmDistancias`, with cache.
    d. Minute offsets for match start/end. **Implemented**: `tiempo.hpp` with `t0 = 00:00`.
    e. Chronological ordering of plazas. **Pending** (phase 4).
    f. Per-plaza candidate lists (CSR + reachability). **Pending** (phase 5).
@@ -104,12 +109,13 @@ Agreed order:
 
 ## Known gaps / pending decisions
 
-- Phase 3 must decide the OSRM endpoint/perfil and whether the metric closure is on by default (agreed: `ceil` rounding, full asymmetric matrix, cache in `data/generated/`). `Sede` now has coordinates; a sede with both at 0 is a bug.
-- `libcurl4-openssl-dev` is **not installed**; the user must run `sudo apt install libcurl4-openssl-dev` before the OSRM client can be built. Keep CMake working without it (optional target).
+- Phase 4 must fix the exact tie-break of the plaza order (`(minuto_inicio, sede, partido_id, plaza_id)` is the agreed one) and whether `PlazaDia` stores `minuto_fin` as the end of the match or as the first free minute (today: end of the match).
+- The public OSRM demo server is for demos and has limits/rate limits. `OpcionesOsrm::url` is configurable for a local Docker instance; do not hardcode the demo URL anywhere else. The cache key includes URL + profile + coordinates.
+- `Sede` coordinates are required: a sede with both at 0 triggers an `assert` in `construir_matriz_distancias`.
 - `Arbitro::disponibilidad_*` are `time_t`; the conversion is done in `tiempo.hpp`. The declared start means "available at home from then" (not "can leave home earlier to arrive on time"): that would need a per-referee departure field that does not fit in `EstadoArbitro`.
 - `kMaxArbitros = 600` is a hard cap; if the real instance exceeds it, that is a bug. The 10-bit `sede_id` requires `M_dia <= 1024`, guaranteed by per-day sede compaction.
 - Node budget / memory limit, tie-breaking/determinism, and the parallel mechanism for the three days are undefined.
-- Tests cover smoke, arena, objective and static-data phases 1–2; grow them as phases 3–5 land.
+- Tests cover smoke, arena, objective, static-data phases 1–3 and the OSRM client (offline); grow them as phases 4–5 land.
 - No benchmark or baseline yet; `docs/optimizaciones.md` proposes a minimal arena benchmark to be added once the search runs.
 
 ## Rules

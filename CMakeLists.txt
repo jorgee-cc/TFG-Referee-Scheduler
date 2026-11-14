@@ -31,6 +31,7 @@ target_include_directories(referee_scheduler_domain
 # se propagan a quien enlace el target.
 add_library(referee_scheduler_algorithms STATIC
     src/algorithms/construir_instancia.cpp
+    src/algorithms/instancia_dia.cpp
     src/algorithms/tiempo.cpp
 )
 
@@ -47,6 +48,35 @@ target_link_libraries(referee_scheduler
     PRIVATE
         referee_scheduler_domain
 )
+
+# Cliente OSRM: necesita libcurl. Si no está, el resto del proyecto se sigue
+# pudiendo compilar (la construcción en memoria usa un proveedor inyectado).
+find_package(CURL QUIET)
+
+if(CURL_FOUND)
+    add_library(referee_scheduler_io STATIC
+        src/io/osrm.cpp
+    )
+
+    target_link_libraries(referee_scheduler_io
+        PUBLIC
+            referee_scheduler_algorithms
+        PRIVATE
+            CURL::libcurl
+    )
+
+    # Prueba manual contra la red; no se registra en CTest.
+    add_executable(referee_scheduler_osrm_smoke
+        examples/osrm_smoke.cpp
+    )
+
+    target_link_libraries(referee_scheduler_osrm_smoke
+        PRIVATE
+            referee_scheduler_io
+    )
+else()
+    message(STATUS "libcurl no encontrado: se omite referee_scheduler_io (cliente OSRM)")
+endif()
 
 if(BUILD_TESTING)
     include(CTest)
