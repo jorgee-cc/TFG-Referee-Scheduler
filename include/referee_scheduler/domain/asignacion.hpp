@@ -1,3 +1,9 @@
+// Entidad de dominio `Asignacion`: el par (plaza, árbitro) que dice qué árbitro
+// cubre una plaza concreta de un partido.
+// Es la unidad mínima de una solución y el dato que necesita la validación
+// final para reconstruir y comprobar un plan de arbitraje. Header-only, sin
+// lógica y con referencias por id `int`, como el resto de `domain/`.
+
 #pragma once
 
 namespace referee_scheduler::domain {

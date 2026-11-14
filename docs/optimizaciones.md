@@ -27,7 +27,7 @@ significativas.
 
 #### 1. Coste de inicialización (zeroing) — confirmado
 
-`std::make_unique<std::byte[]>(n)` ejecuta `new std::byte[n]()`, es decir *value-initialization*:
+`std::make_unique<std::byte[]>(n)` ejecuta `new std::byte[n]()`, es decir _value-initialization_:
 el compilador emite un `memset` de los 64 KiB de cada bloque. Ese recorrido es inútil porque
 `crear()` sobrescribe inmediatamente cabecera y estado con placement new y `std::memcpy`.
 
@@ -70,8 +70,8 @@ en Intel, ~3072 en Zen). Para conseguirlo hacen falta **las tres cosas**:
 3. `madvise(MADV_HUGEPAGE)`, porque Ubuntu y la mayoría de distros usan THP en modo `madvise`
    (no `always`).
 
-Un bloque de 2 MiB mal alineado no garantiza nada. Además, el acceso a un nodo ya es un *cache
-miss* de ~200 ciclos; el page-walk de una TLB miss (~20–30 ciclos si acierta el page-walk cache) es
+Un bloque de 2 MiB mal alineado no garantiza nada. Además, el acceso a un nodo ya es un _cache
+miss_ de ~200 ciclos; el page-walk de una TLB miss (~20–30 ciclos si acierta el page-walk cache) es
 un porcentaje, no el doble. **Hay que medirlo con el algoritmo funcionando.**
 
 ### Qué aportan las fuentes
@@ -84,7 +84,7 @@ dos ideas que la v1 no tiene:
 - **Reutilización** de la arena entre ejecuciones.
 
 Sus tamaños por defecto (256 B–8 KiB) están pensados para mensajes pequeños y serían catastróficos
-con nodos de 2.4 KB; se copia el *concepto* de opciones, no los valores. La lista de destructores no
+con nodos de 2.4 KB; se copia el _concepto_ de opciones, no los valores. La lista de destructores no
 aplica: todo es POD.
 
 **arena-allocator** confirma el bump + `max_align_t` y documenta el punto clave del apartado 3: el
@@ -94,7 +94,7 @@ garantizar la alineación explícita y no prometer liberación individual.
 
 ### Diseño propuesto: arena v2
 
-Unidad de asignación = **región**; unidad de nodo = *stride* fijo.
+Unidad de asignación = **región**; unidad de nodo = _stride_ fijo.
 
 ```
 Región (32 MiB objetivo, 2 MiB-alineada, madvise HUGEPAGE)
@@ -115,15 +115,15 @@ nodo = [ CabeceraNodo 24 B ][ EstadoArbitro × n ]  → stride = round_up(24 + 4
   `ArenaOptions`).
 - `memoria_reservada()` y `memoria_usada()` separadas.
 
-Números con el *stride* redondeado a 64 B:
+Números con el _stride_ redondeado a 64 B:
 
-| n | stride | nodos/región (2^k) | bytes usados | región real | TLB para 2.4 GB (THP) |
-|---|--------|--------------------|--------------|-------------|------------------------|
-| 6 | 64 B | 524 288 | 32 MiB | 32 MiB | ~1200 entradas |
-| 60 | 320 B | 65 536 | 20 MiB | 20 MiB | ~1200 |
-| 120 | 512 B | 65 536 | 32 MiB | 32 MiB | ~1200 |
-| 300 | 1 280 B | 16 384 | 20 MiB | 20 MiB | ~1200 |
-| 600 | 2 432 B | 8 192 | 19 MiB | 20 MiB | ~1200 |
+| n   | stride  | nodos/región (2^k) | bytes usados | región real | TLB para 2.4 GB (THP) |
+| --- | ------- | ------------------ | ------------ | ----------- | --------------------- |
+| 6   | 64 B    | 524 288            | 32 MiB       | 32 MiB      | ~1200 entradas        |
+| 60  | 320 B   | 65 536             | 20 MiB       | 20 MiB      | ~1200                 |
+| 120 | 512 B   | 65 536             | 32 MiB       | 32 MiB      | ~1200                 |
+| 300 | 1 280 B | 16 384             | 20 MiB       | 20 MiB      | ~1200                 |
+| 600 | 2 432 B | 8 192              | 19 MiB       | 20 MiB      | ~1200                 |
 
 Frente a hoy (64 KiB, división, `make_unique`): 1 M de nodos con `n = 600` pasa de ~1953 bloques y
 ~620 000 páginas de 4 KiB a **~122 regiones y ~1200 páginas de 2 MiB**.
@@ -159,6 +159,34 @@ Frente a hoy (64 KiB, división, `make_unique`): 1 M de nodos con `n = 600` pasa
 - **Hugepages explícitas** (`MAP_HUGETLB`, requiere `nr_hugepages` y root): se prefiere THP con
   `madvise`.
 - **Prefetch manual** (`__builtin_prefetch`): probar solo si el benchmark muestra que la creación
-  de nodos va dominada por *cache misses*.
+  de nodos va dominada por _cache misses_.
 - **Layout SoA** (todas las cabeceras en una región y todos los estados en otra): complica el acceso
   sin una ganancia clara frente al nodo contiguo.
+
+## Funcion objetivo
+
+Buena pregunta, pero el if no es el problema aquí. Lo separo:
+Qué cuesta de verdad una transición
+Por cada hijo generado, coste_asignar hace:
+
+- 3 lecturas a la matriz de distancias (d(actual,plaza), d(plaza,casa), d(actual,casa)). Si la matriz es grande, ese es el coste dominante: cada fallo de caché son ~100-300 ciclos.
+- 2-3 sumas, 2 restas, una multiplicación por k y una suma.
+- 1 comparación de factibilidad (llegada > inicio).
+- 1 comparación sede_actual == domicilio.
+  Una comparación + salto bien predicho cuesta ~0-1 ciclo; una multiplicación entera, ~3 ciclos. Frente a 3 accesos a memoria, es ruido. No hay benchmark todavía (el propio AGENTS.md dice que las micro-optimizaciones se miden cuando Dijkstra funcione), así que optimizar el if ahora sería adivinar.
+  Además, esos dos if son muy predecibles
+- llegada > inicio: casi siempre falso en una instancia normal (el generador solo crea candidatos factibles). Salto predecible.
+- sede_actual == domicilio: solo es verdadero en el primer partido de cada árbitro. En profundidad ≥ 2 es falso siempre → predicción casi perfecta.
+  Y el compilador ni siquiera tiene que ramificar el segundo: un ternario se compila a cmov con -O2. Es decir, ya podemos tener la versión "sin salto" sin perder legibilidad:
+  const bool en_casa = (arbitro.sede_id == static_cast<std::uint32_t>(sede_domicilio));
+  const int espera = minuto_inicio_plaza - llegada;
+  const int espera_facturable = en_casa ? 0 : espera; // -> cmov
+  El de factibilidad (llegada > inicio) sí debe quedarse como salto: es una restricción dura y hay que devolver nullopt.
+  std::optional tampoco añade coste
+  std::optional<int64_t> son 16 B que viajan en dos registros (rax/rdx), sin heap. Al ser header-only e inline, se integra en el llamador. Si algún día el compilador no lo inlinea, se separa en bool factible(...) + función que devuelve int64_t, pero eso es prematuro.
+  Recomendación
+  Escribir la versión legible (con el ternario para "en casa", que además evita el salto) y posponer la medición a cuando exista Dijkstra:
+
+1. Ahora: fórmula clara y correcta.
+2. Paso 5c: listas de candidatos por plaza, que ya descartan por tiempo antes de llamar a la función (ahí desaparece el if de factibilidad del bucle caliente).
+3. Con Dijkstra funcionando: perf stat/perf record y decidir si de verdad importa.

@@ -1,3 +1,10 @@
+// Función de coste de la búsqueda, en céntimos enteros y por minimización:
+// cuánto cuesta asignar una plaza a un árbitro y cuánto cuesta dejarla vacía.
+// El coste mide tiempo (viaje, espera y ajuste del retorno a casa) más un
+// épsilon por asignación, de forma que ninguna arista sea negativa y Dijkstra
+// siga siendo aplicable. Es header-only, sin memoria dinámica, y no depende de
+// `domain::Estado`.
+
 #pragma once
 
 #include <cassert>

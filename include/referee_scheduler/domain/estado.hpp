@@ -1,3 +1,10 @@
+// Tipo de solución heredado: agrupa las asignaciones de un plan junto a dos
+// mapas auxiliares (última sede y franja ocupada por árbitro).
+// Está superado por `algorithms::Estado`, la estadística suficiente empaquetada
+// en 4 B por árbitro que usa la búsqueda, y su concepto de franja lo sustituyen
+// los minutos continuos. No se amplía ni se usa en código nuevo: se conserva a
+// la espera de decidir si se borra o queda como tipo de la solución final.
+
 #pragma once
 
 #include <utility>

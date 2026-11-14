@@ -1,3 +1,10 @@
+// Almacén de nodos de búsqueda con direcciones estables: cada nodo es una
+// cabecera de 24 B seguida de los `n_arbitros` registros de 4 B del día.
+// El tamaño de bloque se calcula en tiempo de ejecución (`24 + 4·n`), así que
+// un día con pocos árbitros no paga el peor caso, y los nodos viven en bloques
+// de heap que nunca se mueven: crear uno es avanzar un contador y copiar su
+// estado. No depende del cargador ni de `domain::Instancia`.
+
 #pragma once
 
 #include <algorithm>

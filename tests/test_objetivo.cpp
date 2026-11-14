@@ -1,3 +1,9 @@
+// Pruebas de `algorithms::objetivo.hpp`: conversión de euros a céntimos, primer
+// partido desde el domicilio, espera en ruta, ajuste del viaje de retorno
+// (positivo y negativo), llegada tarde como transición infactible y coste de
+// dejar plazas vacías. Es el ejecutable `referee_scheduler_objetivo_tests` de
+// CTest.
+
 #include <cstdint>
 #include <iostream>
 #include <optional>

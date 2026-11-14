@@ -1,3 +1,9 @@
+// Prueba de humo del estado empaquetado de la búsqueda.
+// Comprueba las garantías de layout (`EstadoArbitro` de 4 B, `Estado` de
+// 2400 B y capacidad de 600 árbitros), los valores límite de cada campo y que
+// copiar el estado con `memcpy` conserve el contenido. La arena y la función
+// objetivo tienen su propio ejecutable de pruebas.
+
 #include <cstddef>
 #include <cstring>
 #include <iostream>

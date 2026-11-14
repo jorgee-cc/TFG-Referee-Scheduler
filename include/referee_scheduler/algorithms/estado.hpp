@@ -1,3 +1,10 @@
+// Estado empaquetado de la búsqueda: la mínima estadística suficiente del
+// pasado, 4 B por árbitro (sede actual, minuto de liberación y bits reservados)
+// con capacidad de compilación para 600 árbitros.
+// Es trivially copyable y sin memoria dinámica, de modo que copiar un estado es
+// un memcpy de 2400 B; los nodos de la búsqueda los guarda `algorithms::Arena`,
+// que solo reserva las `n_arbitros` entradas del día.
+
 #pragma once
 
 #include <array>

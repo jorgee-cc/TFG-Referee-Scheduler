@@ -48,24 +48,62 @@ estado, frontera de búsqueda, datos estáticos, ensamblado de Dijkstra y valida
   - Optimizaciones de hardware estudiadas (zeroing, división, hugepages/TLB): **no implementadas**,
     documentadas en `docs/optimizaciones.md` para cuando el algoritmo funcione y se pueda medir.
 
+## Datos estáticos (fases 1-2 implementadas)
+
+La carga de la instancia se divide en cinco fases que preparan la búsqueda. De momento es
+**construcción en memoria**; el cargador de fichero es el paso 5f.
+
+- **Agregado de entrada**: `domain::Instancia` (`domain/instancia.hpp`) con los vectores de
+  `Equipo`, `Sede`, `Arbitro`, `Partido` y `Plaza`. Header-only y con referencias por `id`.
+- **`Sede` tiene `latitud`/`longitud`** (WGS84). Los tiempos de viaje se piden a la API `/table`
+  de **OSRM**; no se guarda una matriz N×N en la instancia. Ambas coordenadas a cero = sede sin
+  geolocalizar.
+- **Tiempo** (`algorithms/tiempo.hpp` + `src/algorithms/tiempo.cpp`): `DiaCivil`, `dia_de`
+  (hora local con `localtime_r`), `minuto_del_dia`, `indice_dia` (días civiles de Hinnant, sin
+  dividir `time_t` entre 86400) y `minuto_absoluto`. `t0` es **las 00:00 del día**, así que un
+  minuto es `hora*60 + minuto`. Es el único código que depende de la zona horaria.
+- **Fase 1, partición por día** (`GrupoDia`, `agrupar_por_dia`): agrupa por la **fecha civil de
+  `inicio`**, nunca por `final`. Un partido del viernes a las 23:30 que acaba el sábado a la 01:00
+  es del viernes. Días ordenados y, dentro, posiciones de entrada.
+- **Fase 2, compactación de árbitros** (`ArbitroDia`, `compactar_arbitros`): entra quien tiene
+  algún minuto de **inicio** válido del día en su ventana, comparada en **minutos absolutos**
+  (compararla ya recortada incluiría por error a quien solo estaba disponible el día anterior).
+  `primer_inicio`/`ultimo_inicio` son la ventana recortada a `[0, 1440]`; 1440 = sin límite. El
+  resultado se ordena por `id_global`, así que el id compacto (índice) es determinista y cubre
+  `0..N_dia-1`. Los vetos se recortan a los equipos del día, ordenados y sin duplicados.
+- **Semántica de disponibilidad (decidida por el usuario)**: el fin declarado limita la **hora de
+  inicio** del partido, no su final. Hasta las 23:00 permite empezar a las 23:00 aunque acabe
+  después de medianoche. El inicio declarado se interpreta como "disponible en su domicilio desde
+  esa hora", así que el primer desplazamiento se cobra desde ahí.
+- **Fase 3 (siguiente)**: `ProveedorDistancias` en `algorithms/` y `OsrmDistancias` en `io/`
+  (libcurl, lotes de 100 coordenadas, `lon,lat`, `null` → inalcanzable, caché en
+  `data/generated/`). Sedes compactadas a `0..M-1` (sedes de partidos ∪ domicilios). Matriz
+  **completa y asimétrica** (OSRM da tiempos distintos por sentido), diagonal 0,
+  `ceil(segundos/60)` y cierre métrico opcional con Floyd-Warshall.
+- **Fases 4-5 (pendientes)**: `PlazaDia` ordenadas por `(inicio, sede, partido, plaza)` con
+  `es_principal`, y listas de candidatos en CSR con filtros de nivel, ventana, veto y
+  alcanzabilidad desde el domicilio.
+
 ## Conceptos pendientes de modelar
 
-- **Tiempo de viaje**: `Sede` no tiene coordenadas ni existe una matriz de viaje. Hay que decidir si
-  la instancia la trae o se calcula a partir de coordenadas.
-- **Franja horaria**: el estado continuo (`minuto_liberacion`) la sustituye; no se modela como entidad.
-- **Plazas sin cubrir**: falta decidir si se permiten y con qué penalización.
-- **Tiempo muerto**: falta decidir si cuenta antes del primer partido y después del último.
-- **Representación del coste**: `Plaza::retribucion` es `double`; decidir céntimos frente a coma
-  flotante para que las comparaciones sean exactas.
+- **Tiempo de viaje**: decidido; coordenadas en `Sede` + OSRM (fase 3).
+- **Franja horaria**: el estado continuo (`minuto_liberacion`) la sustituye; no se modela.
+- **Plazas sin cubrir**: decidido en la función objetivo (principal prohibida, secundaria paga su
+  retribución).
+- **Tiempo muerto**: decidido; se cobra salvo la espera en el domicilio.
+- **Representación del coste**: en céntimos enteros (`int64_t`).
 
-## Ideas de optimización (aplazadas)
+## Ideas de optimización
 
-- Agregado `Instancia` que posea los vectores contiguos de `Equipo`, `Sede`, `Arbitro`, `Partido` y
-  `Plaza`.
-- Matriz plana (row-major) de tiempos de viaje entre sedes, precalculada al cargar la instancia.
-- Vetos como bitmask (`std::vector<uint64_t>` o `std::bitset`) para factibilidad O(1).
+- Agregado `Instancia` con los vectores contiguos de `Equipo`, `Sede`, `Arbitro`, `Partido` y
+  `Plaza`. _Adoptado en `domain::Instancia`._
+- Matriz plana (row-major) de tiempos de viaje entre sedes, precalculada una vez por día.
+  _Fase 3._
+- Vetos como bitmask (`std::vector<uint64_t>` o `std::bitset`) para factibilidad O(1). Aplazado:
+  de momento son ids ordenados con búsqueda binaria al construir las listas de candidatos.
 - Referencias por índice posicional en lugar de por `id`, con mapeo id -> índice en la carga.
-- Arena por bloques para los estados, con punteros estables.
-- Copiar solo `4 · N_dia` bytes del estado cuando se compacta por día.
+  _Adoptado en la compactación por día._
+- Arena por bloques para los estados, con punteros estables. _Adoptado en `algorithms::Arena`._
+- Copiar solo `4 · N_dia` bytes del estado cuando se compacta por día. _Adoptado._
 - Structs/trivialmente copiables para permitir `memcpy` y mejorar localidad de caché. _Adoptado en
   `algorithms::Estado`._

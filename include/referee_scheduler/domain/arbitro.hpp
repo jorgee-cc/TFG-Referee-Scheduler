@@ -1,3 +1,10 @@
+// Entidad de dominio `Arbitro`: los datos de un árbitro que puede cubrir plazas.
+// Es header-only y sin lógica, como el resto de `domain/`: solo campos públicos
+// con valores por defecto que rellenará el futuro cargador de instancias.
+// Las referencias a otras entidades son ids `int` (sede del domicilio, equipos
+// vetados) y las marcas de tiempo son `time_t`, que después se convierten a
+// minutos del día en la fase de datos estáticos.
+
 #pragma once
 
 #include <ctime>

@@ -1,3 +1,9 @@
+// Pruebas de `algorithms::Arena`: tamaño de bloque, copia de solo las
+// `n_arbitros` entradas significativas, longitud de los spans, estabilidad de
+// las direcciones al crear nodos en muchos bloques y contadores de memoria.
+// Se ejecuta para varios tamaños de día (1, 5, 300 y 600 árbitros) y es el
+// ejecutable `referee_scheduler_arena_tests` de CTest.
+
 #include <array>
 #include <cstddef>
 #include <cstdint>

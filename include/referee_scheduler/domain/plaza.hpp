@@ -1,3 +1,10 @@
+// Entidad de dominio `Plaza` y el enum `Rol`: cada plaza es un hueco de un
+// partido que debe cubrir un árbitro con un rol concreto (principal, asistente,
+// anotador o juez de línea).
+// El nivel mínimo y la retribución viven aquí, no en el partido, porque un
+// mismo encuentro puede tener plazas con exigencias y pagos distintos. Es
+// header-only, sin lógica y con referencias por id `int`.
+
 #pragma once
 
 namespace referee_scheduler::domain {

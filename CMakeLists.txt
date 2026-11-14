@@ -1,3 +1,9 @@
+# Construcción del proyecto TFG de planificación de arbitrajes.
+# Define tres targets: `referee_scheduler_domain` (cabeceras del modelo),
+# `referee_scheduler_algorithms` (búsqueda y datos estáticos, ya con .cpp) y el
+# ejecutable `referee_scheduler`. C++20 estricto, sin extensiones del
+# compilador, y tests activados por defecto con CTest.
+
 cmake_minimum_required(VERSION 3.20)
 
 project(referee_scheduler
@@ -19,12 +25,17 @@ target_include_directories(referee_scheduler_domain
         ${PROJECT_SOURCE_DIR}/include
 )
 
-# Los algoritmos de búsqueda son header-only por ahora y dependen del modelo
-# de dominio (ids, entidades). Este target propaga el include dir común.
-add_library(referee_scheduler_algorithms INTERFACE)
+# Algoritmos de búsqueda y construcción de los datos estáticos. Dependen del
+# modelo de dominio (ids, entidades) y ya tienen implementación en .cpp, así que
+# el target deja de ser INTERFACE. Las cabeceras siguen viviendo en include/ y
+# se propagan a quien enlace el target.
+add_library(referee_scheduler_algorithms STATIC
+    src/algorithms/construir_instancia.cpp
+    src/algorithms/tiempo.cpp
+)
 
 target_link_libraries(referee_scheduler_algorithms
-    INTERFACE
+    PUBLIC
         referee_scheduler_domain
 )
 
