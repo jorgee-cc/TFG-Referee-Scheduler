@@ -22,6 +22,11 @@ namespace referee_scheduler::algorithms
         return sede_global.size();
     }
 
+    std::size_t InstanciaDia::n_plazas() const noexcept
+    {
+        return plazas.size();
+    }
+
     Minutos InstanciaDia::viaje(std::size_t desde, std::size_t hasta) const
     {
         assert(desde < n_sedes() && "sede de origen fuera de rango");

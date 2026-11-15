@@ -91,8 +91,17 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
     coordenadas en la URL: 200 coordenadas con tabla 100×100 funciona), `null` → inalcanzable y
     caché con hash FNV-1a en `data/generated/distancias_<hash>.txt`.
   - `construir_instancia_dia` (fases 1-3) y `construir_instancias` (una por fecha).
-- **Fases 4-5 (pendientes)**: `PlazaDia` ordenadas por `(inicio, sede, partido, plaza)` con
-  `es_principal`, y listas de candidatos en CSR con filtros de nivel, ventana, veto y
+- **Fase 4, plazas cronológicas (implementada)**: `construir_plazas(instancia, grupo, sede_global)`
+  expande los partidos del día en `PlazaDia` ordenadas por `(minuto_inicio, sede compacta, partido_id,
+  plaza_id)`; el índice en `InstanciaDia::plazas` **es el nivel del árbol**. `PlazaDia` (48 B,
+  trivially copyable) lleva `minuto_inicio`, `minuto_fin`, la sede compacta, `nivel_requerido`,
+  `retribucion_centimos` (`a_centimos`, una sola vez), `rol` (y `es_principal()`), `partido_id`,
+  `plaza_id` y los dos equipos. Decisiones cerradas: el desempate es
+  `(inicio, sede compacta, partido, plaza)`, total y determinista; `minuto_fin` es el **final del
+  partido** en minutos absolutos del día (23:30→01:00 vale 1500, no se recorta a 1440) y es
+  exactamente el minuto de liberación del árbitro. Los datos por partido se calculan una vez, no por
+  plaza; las plazas de partidos de otra jornada se descartan.
+- **Fase 5 (pendiente)**: listas de candidatos en CSR con filtros de nivel, ventana, veto y
   alcanzabilidad desde el domicilio.
 
 ## Conceptos pendientes de modelar

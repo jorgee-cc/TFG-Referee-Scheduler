@@ -1,9 +1,10 @@
 // Pruebas de la construcción de los datos estáticos, una por fase.
 // Cubre de momento la fase 1 (partición por fecha civil), la fase 2
-// (compactación de árbitros), la fase 3 (matriz de distancias) y las utilidades
-// de `tiempo.hpp` que usan: fecha civil local, minuto del día, índice de día y
-// recorte de disponibilidades. Es el ejecutable
-// `referee_scheduler_instancia_tests` de CTest.
+// (compactación de árbitros), la fase 3 (matriz de distancias), la fase 4
+// (expansión de plazas ordenadas) y las utilidades de `tiempo.hpp` que usan:
+// fecha civil local, minuto del día, índice de día y recorte de
+// disponibilidades. Es el ejecutable `referee_scheduler_instancia_tests` de
+// CTest.
 
 #include <cstddef>
 #include <cstdint>
@@ -27,12 +28,14 @@ namespace
     using referee_scheduler::algorithms::InstanciaDia;
     using referee_scheduler::algorithms::Minutos;
     using referee_scheduler::algorithms::OpcionesDistancias;
+    using referee_scheduler::algorithms::PlazaDia;
     using referee_scheduler::algorithms::ProveedorDistancias;
     using referee_scheduler::algorithms::agrupar_por_dia;
     using referee_scheduler::algorithms::cerrar_metricamente;
     using referee_scheduler::algorithms::compactar_arbitros;
     using referee_scheduler::algorithms::construir_instancia_dia;
     using referee_scheduler::algorithms::construir_instancias;
+    using referee_scheduler::algorithms::construir_plazas;
     using referee_scheduler::algorithms::dia_de;
     using referee_scheduler::algorithms::indice_dia;
     using referee_scheduler::algorithms::kMinutosInalcanzable;
@@ -43,6 +46,8 @@ namespace
     using referee_scheduler::domain::Arbitro;
     using referee_scheduler::domain::Instancia;
     using referee_scheduler::domain::Partido;
+    using referee_scheduler::domain::Plaza;
+    using referee_scheduler::domain::Rol;
     using referee_scheduler::domain::Sede;
 
     int fallos = 0;
@@ -82,6 +87,18 @@ namespace
         p.id = id;
         p.inicio = inicio;
         p.final = final;
+        return p;
+    }
+
+    /// Plaza mínima con los campos que usa la expansión de la fase 4.
+    Plaza plaza(int id, int partido_id, Rol rol, int nivel, double retribucion)
+    {
+        Plaza p;
+        p.id = id;
+        p.partido_id = partido_id;
+        p.rol = rol;
+        p.nivel_requerido = nivel;
+        p.retribucion = retribucion;
         return p;
     }
 
@@ -328,6 +345,22 @@ int main()
     instancia.sedes = {sede(13), sede(10), sede(21),
                        sede(11), sede(20), sede(12)};
 
+    // Plazas del fin de semana. Se meten desordenadas y con ids que no coinciden
+    // con la posición en el vector: así se comprueba que el orden final lo fija
+    // el criterio de la fase 4 y no el orden de entrada. La retribución 30,50 €
+    // sirve para verificar la conversión a céntimos enteros (3050).
+    //   - partido 0 (viernes 18:00, sede 10): plazas 500 y 501.
+    //   - partido 1 (viernes 20:00, sede 11): plaza 502.
+    //   - partido 3 (viernes 23:30, sede 12): plaza 503.
+    //   - partido 2 (sábado 12:00, sede 20): plaza 504.
+    //   - partido 4 (domingo 11:00, sede 21): plaza 505.
+    instancia.plazas.push_back(plaza(501, 0, Rol::Principal, 2, 30.50));
+    instancia.plazas.push_back(plaza(503, 3, Rol::Principal, 2, 40.00));
+    instancia.plazas.push_back(plaza(505, 4, Rol::Principal, 3, 25.00));
+    instancia.plazas.push_back(plaza(500, 0, Rol::Asistente, 1, 12.00));
+    instancia.plazas.push_back(plaza(504, 2, Rol::JuezLinea, 1, 10.00));
+    instancia.plazas.push_back(plaza(502, 1, Rol::Asistente, 1, 12.00));
+
     // Se meten a propósito desordenados y con ids no consecutivos: el resultado
     // debe salir ordenado por id global y los ids compactos deben ser 0..N-1.
     instancia.arbitros.push_back(arbitro(
@@ -552,7 +585,181 @@ int main()
                   "el cierre no debe tocar la diagonal");
     }
 
-    // Pipeline completo de las fases 1-3 para las tres jornadas.
+    // ---------------------------------------------------------------------
+    // Fase 4: expansión y orden de las plazas
+    // ---------------------------------------------------------------------
+
+    // `dia_viernes` ya se construyó con las fases 1-4, así que trae sus plazas.
+    // De las seis plazas de la instancia solo cuatro son del viernes.
+    comprobar(dia_viernes.n_plazas() == 4,
+              "el viernes debe tener cuatro plazas");
+    if (dia_viernes.n_plazas() == 4)
+    {
+        // Orden (minuto_inicio, sede, partido_id, plaza_id):
+        // 18:00 -> 500 y 501 (mismo partido y sede, desempata plaza_id),
+        // 20:00 -> 502, 23:30 -> 503.
+        comprobar(dia_viernes.plazas[0].plaza_id == 500,
+                  "la primera plaza del viernes es la 500");
+        comprobar(dia_viernes.plazas[1].plaza_id == 501,
+                  "a igualdad de partido y sede desempata el id de plaza");
+        comprobar(dia_viernes.plazas[2].plaza_id == 502,
+                  "después va la plaza de las 20:00");
+        comprobar(dia_viernes.plazas[3].plaza_id == 503,
+                  "la última es la del partido nocturno");
+
+        // Partido 0: 18:00-19:30, sede global 10 -> índice compacto 0.
+        const PlazaDia &primera = dia_viernes.plazas[0];
+        comprobar(primera.minuto_inicio == 18 * 60,
+                  "minuto_inicio del partido de las 18:00");
+        comprobar(primera.minuto_fin == 19 * 60 + 30,
+                  "minuto_fin del partido de las 18:00");
+        comprobar(primera.sede == 0, "la sede 10 se compacta en el índice 0");
+        comprobar(primera.partido_id == 0, "la plaza conserva su partido");
+        comprobar(primera.nivel_requerido == 1,
+                  "la plaza de asistente exige nivel 1");
+        comprobar(primera.retribucion_centimos == 1200,
+                  "12,00 euros son 1200 centimos");
+        comprobar(primera.rol == Rol::Asistente,
+                  "la plaza 500 es de asistente");
+        comprobar(!primera.es_principal(),
+                  "una plaza de asistente no es principal");
+        comprobar(primera.equipo_local_id == 100 &&
+                      primera.equipo_visitante_id == 101,
+                  "la plaza lleva los dos equipos del partido");
+
+        const PlazaDia &segunda = dia_viernes.plazas[1];
+        comprobar(segunda.retribucion_centimos == 3050,
+                  "30,50 euros son 3050 centimos (redondeo a centimo)");
+        comprobar(segunda.es_principal(),
+                  "la plaza 501 es principal y no puede quedarse vacia");
+
+        // Partido 1: 20:00-21:30 en la sede global 11 -> índice 1.
+        comprobar(dia_viernes.plazas[2].minuto_inicio == 20 * 60,
+                  "minuto_inicio del partido de las 20:00");
+        comprobar(dia_viernes.plazas[2].minuto_fin == 21 * 60 + 30,
+                  "minuto_fin del partido de las 20:00");
+        comprobar(dia_viernes.plazas[2].sede == 1,
+                  "la sede 11 se compacta en el indice 1");
+
+        // Partido 3: 23:30 del viernes a 01:00 del sabado. El fin se mide
+        // desde las 00:00 del viernes, asi que vale 1500 y no se recorta.
+        const PlazaDia &nocturna = dia_viernes.plazas[3];
+        comprobar(nocturna.minuto_inicio == 23 * 60 + 30,
+                  "el partido nocturno empieza a las 23:30");
+        comprobar(nocturna.minuto_fin == kMinutosPorDia + 60,
+                  "un partido que acaba a la 01:00 termina en el minuto 1500");
+        comprobar(nocturna.sede == 2,
+                  "la sede 12 se compacta en el indice 2");
+        comprobar(nocturna.retribucion_centimos == 4000,
+                  "40,00 euros son 4000 centimos");
+    }
+
+    // El sábado la sede 20 es la tercera compacta (11, 13, 20): el registro
+    // guarda el índice de la matriz, no el id global.
+    {
+        ProveedorConstante constante(7);
+        const std::vector<InstanciaDia> dias =
+            construir_instancias(instancia, constante);
+
+        comprobar(dias.size() == 3, "deben construirse las tres jornadas");
+        if (dias.size() == 3)
+        {
+            // El sábado solo tiene la plaza 504: 12:00-13:30 en la sede 20.
+            comprobar(dias[1].n_plazas() == 1,
+                      "el sabado solo tiene una plaza");
+            if (dias[1].n_plazas() == 1)
+            {
+                const PlazaDia &sabado = dias[1].plazas[0];
+                comprobar(sabado.plaza_id == 504, "la plaza del sabado es la 504");
+                comprobar(sabado.minuto_inicio == 12 * 60,
+                          "el partido del sabado empieza a las 12:00");
+                comprobar(sabado.minuto_fin == 13 * 60 + 30,
+                          "y acaba a las 13:30");
+                comprobar(sabado.sede == 2,
+                          "la sede 20 es la tercera compacta del sabado");
+                comprobar(sabado.rol == Rol::JuezLinea,
+                          "la plaza del sabado es de juez de linea");
+                comprobar(!sabado.es_principal(),
+                          "un juez de linea no es principal");
+                comprobar(sabado.retribucion_centimos == 1000,
+                          "10,00 euros son 1000 centimos");
+                comprobar(sabado.partido_id == 2 &&
+                              sabado.equipo_local_id == 104 &&
+                              sabado.equipo_visitante_id == 105,
+                          "la plaza lleva el partido y sus dos equipos");
+            }
+
+            // El domingo no tiene árbitros, pero sí su plaza.
+            comprobar(dias[2].n_plazas() == 1,
+                      "el domingo conserva su plaza aunque no haya arbitros");
+            if (dias[2].n_plazas() == 1)
+            {
+                comprobar(dias[2].plazas[0].minuto_inicio == 11 * 60 &&
+                              dias[2].plazas[0].minuto_fin == 12 * 60 + 30,
+                          "horario de la plaza del domingo");
+                comprobar(dias[2].plazas[0].nivel_requerido == 3,
+                          "la plaza del domingo exige nivel 3");
+            }
+        }
+    }
+
+    // Desempates del orden: dos partidos a la misma hora en sedes distintas y
+    // dos plazas del mismo partido. Se llama a la fase 4 directamente porque
+    // aquí no hacen falta árbitros ni matriz.
+    {
+        Instancia empates;
+        empates.partidos.push_back(partido(
+            7, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 19, 30)));
+        empates.partidos.push_back(partido(
+            8, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 19, 30)));
+        empates.partidos.push_back(partido(
+            9, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 19, 30)));
+        empates.partidos[0].sede_id = 31;
+        empates.partidos[1].sede_id = 30;
+        empates.partidos[2].sede_id = 30;
+
+        empates.plazas.push_back(plaza(703, 7, Rol::Asistente, 1, 10.0));
+        empates.plazas.push_back(plaza(702, 7, Rol::Asistente, 1, 10.0));
+        empates.plazas.push_back(plaza(701, 8, Rol::Principal, 1, 10.0));
+        empates.plazas.push_back(plaza(704, 9, Rol::Asistente, 1, 10.0));
+        empates.plazas.push_back(plaza(700, 9, Rol::Principal, 1, 10.0));
+
+        const std::vector<GrupoDia> grupos_empates = agrupar_por_dia(empates);
+        const std::vector<int> sedes_empates = {30, 31};
+        const std::vector<PlazaDia> plazas_empates =
+            construir_plazas(empates, grupos_empates[0], sedes_empates);
+
+        // Todas empiezan a la misma hora: ordena la sede compacta (30 -> 0,
+        // 31 -> 1), luego el partido y por último la plaza.
+        comprobar(plazas_empates.size() == 5,
+                  "deben expandirse las cinco plazas");
+        if (plazas_empates.size() == 5)
+        {
+            const std::vector<int> esperado = {701, 700, 704, 702, 703};
+            bool mismo_orden = true;
+            for (std::size_t i = 0; i < esperado.size(); ++i)
+            {
+                if (plazas_empates[i].plaza_id != esperado[i])
+                {
+                    mismo_orden = false;
+                }
+            }
+            comprobar(mismo_orden,
+                      "el orden total es (inicio, sede, partido, plaza)");
+
+            comprobar(plazas_empates[0].sede == 0 &&
+                          plazas_empates[3].sede == 1,
+                      "la sede compacta ordena igual que el id global");
+        }
+
+        // Sin partidos en el grupo no hay plazas que expandir.
+        const std::vector<PlazaDia> sin_plazas =
+            construir_plazas(empates, GrupoDia{}, sedes_empates);
+        comprobar(sin_plazas.empty(),
+                  "un grupo sin partidos no genera plazas");
+    }
+
+    // Pipeline completo de las fases 1-4 para las tres jornadas.
     {
         ProveedorConstante constante(7);
         const std::vector<InstanciaDia> dias =
@@ -585,7 +792,7 @@ int main()
 
     if (fallos == 0)
     {
-        std::cout << "test_instancia (fases 1-3): OK\n";
+        std::cout << "test_instancia (fases 1-4): OK\n";
     }
     return fallos == 0 ? 0 : 1;
 }

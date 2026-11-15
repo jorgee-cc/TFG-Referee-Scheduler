@@ -1,8 +1,7 @@
-// Construcción de los datos estáticos por día: este archivo declara la fase 1,
-// que parte la `Instancia` completa en grupos por fecha civil (`GrupoDia`).
-// La búsqueda es por jornada y en paralelo entre días, así que cada grupo es la
-// entrada de las fases siguientes (compactación de árbitros y sedes, matriz de
-// distancias, plazas y listas de candidatos).
+// Construcción de los datos estáticos por día: este archivo declara las fases
+// 1-4 (partición por fecha, compactación de árbitros, matriz de distancias y
+// expansión de plazas). La búsqueda es por jornada y en paralelo entre días, así
+// que cada grupo de la fase 1 es la entrada de las fases siguientes.
 // La implementación está en `src/algorithms/construir_instancia.cpp`.
 
 #pragma once
@@ -131,17 +130,42 @@ namespace referee_scheduler::algorithms
     void cerrar_metricamente(std::vector<Minutos> &distancias,
                              std::size_t n_sedes);
 
-    /// Construye la instancia de un día aplicando las fases 1-3.
+    /// Fase 4: expande los partidos del día en plazas ordenadas.
     ///
-    /// Las plazas (fase 4) y las listas de candidatos (fase 5) se añadirán a
-    /// esta misma función cuando existan.
+    /// Cada `domain::Plaza` se cruza con su `domain::Partido` para llevar al
+    /// registro el horario, la sede compacta y los dos equipos. Solo entran las
+    /// plazas de los partidos del día; las de otras jornadas se descartan (el
+    /// partido de una plaza que no existe es un dato corrupto y lo debe validar
+    /// el cargador).
+    ///
+    /// El resultado se ordena por `(minuto_inicio, sede, partido_id, plaza_id)`.
+    /// El orden es **total** (los ids son únicos) y por tanto determinista, así
+    /// que el índice de cada plaza es estable entre ejecuciones y sirve de nivel
+    /// del árbol. La comparación usa la sede **compacta**, que ordena igual que
+    /// el id global porque la fase 3 compacta las sedes por id ascendente.
+    ///
+    /// - `minuto_inicio` es el minuto del día del comienzo del partido.
+    /// - `minuto_fin` es el minuto del día del final, medido en absoluto: un
+    ///   partido de 23:30 a 01:00 acaba en el 1500, no recortado a 1440.
+    /// - `retribucion_centimos` se obtiene una sola vez con `a_centimos`.
+    ///
+    /// @param sede_global Sedes compactadas de la fase 3, en orden ascendente;
+    ///                    se usa para traducir `Partido::sede_id` a índice.
+    std::vector<PlazaDia> construir_plazas(const domain::Instancia &instancia,
+                                           const GrupoDia &grupo,
+                                           const std::vector<int> &sede_global);
+
+    /// Construye la instancia de un día aplicando las fases 1-4.
+    ///
+    /// Las listas de candidatos (fase 5) se añadirán a esta misma función cuando
+    /// existan.
     InstanciaDia construir_instancia_dia(
         const domain::Instancia &instancia,
         const GrupoDia &grupo,
         ProveedorDistancias &proveedor,
         const OpcionesDistancias &opciones = {});
 
-    /// Construye una `InstanciaDia` por cada fecha (fases 1-3).
+    /// Construye una `InstanciaDia` por cada fecha (fases 1-4).
     ///
     /// Ordenadas de la jornada más antigua a la más reciente. Cada una es
     /// independiente, así que se pueden resolver en paralelo.

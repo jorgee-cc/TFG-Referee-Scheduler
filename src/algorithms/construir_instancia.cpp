@@ -1,4 +1,4 @@
-// Implementación de las fases 1-3 de los datos estáticos.
+// Implementación de las fases 1-4 de los datos estáticos.
 //
 // - Fase 1 (`agrupar_por_dia`): fecha civil de cada partido calculada una sola
 //   vez, orden por día y, a igualdad de día, por posición de entrada para que el
@@ -8,14 +8,21 @@
 // - Fase 3 (`construir_matriz_distancias`): compacta las sedes implicadas,
 //   pide la matriz de minutos al proveedor, fuerza la diagonal a 0 y aplica el
 //   cierre métrico si se pide.
+// - Fase 4 (`construir_plazas`): expande los partidos del día en plazas con
+//   horario, sede compacta, nivel, retribución en céntimos y equipos, ordenadas
+//   por `(minuto_inicio, sede, partido_id, plaza_id)` para que el índice sea el
+//   nivel del árbol.
 
 #include "referee_scheduler/algorithms/construir_instancia.hpp"
 
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <iterator>
 #include <unordered_map>
 #include <utility>
+
+#include "referee_scheduler/algorithms/objetivo.hpp"
 
 namespace referee_scheduler::algorithms
 {
@@ -297,6 +304,133 @@ namespace referee_scheduler::algorithms
         }
     }
 
+    std::vector<PlazaDia> construir_plazas(const domain::Instancia &instancia,
+                                           const GrupoDia &grupo,
+                                           const std::vector<int> &sede_global)
+    {
+        /// Datos del partido que necesita cada una de sus plazas.
+        ///
+        /// Se calculan una sola vez por partido (y no una vez por plaza) porque
+        /// `minuto_absoluto` descompone el `time_t` con la zona horaria local.
+        struct PartidoDia
+        {
+            const domain::Partido *partido = nullptr;
+            int minuto_inicio = 0;
+            int minuto_fin = 0;
+            std::uint16_t sede = 0;
+        };
+
+        // Las 00:00 del día de la jornada: todos los minutos del registro son
+        // relativos a este instante.
+        const std::int64_t base_dia = indice_dia(grupo.dia) * kMinutosPorDia;
+
+        // 1. Datos por partido (minutos, sede compacta). Los partidos no se
+        // copian: se apunta a los de la instancia de entrada, que vive más que
+        // este vector.
+        std::unordered_map<int, PartidoDia> partidos_del_dia;
+        partidos_del_dia.reserve(grupo.partidos.size());
+
+        for (const std::size_t posicion : grupo.partidos)
+        {
+            const domain::Partido &partido = instancia.partidos[posicion];
+
+            PartidoDia datos;
+            datos.partido = &partido;
+
+            // El grupo se construyó con la fecha civil de `inicio`, así que el
+            // comienzo cae siempre dentro del día. `final`, en cambio, puede
+            // caer de madrugada del día siguiente: se mide en absoluto contra la
+            // base del día para conservar la hora real (1500 y no 60).
+            datos.minuto_inicio = static_cast<int>(
+                minuto_absoluto(partido.inicio) - base_dia);
+            datos.minuto_fin = static_cast<int>(
+                minuto_absoluto(partido.final) - base_dia);
+
+            assert(datos.minuto_inicio >= 0 &&
+                   datos.minuto_inicio < kMinutosPorDia &&
+                   "un partido del dia debe empezar dentro del dia");
+            assert(datos.minuto_fin >= datos.minuto_inicio &&
+                   "un partido no puede acabar antes de empezar");
+            assert(datos.minuto_fin < 2048 &&
+                   "el final del partido no cabe en los 11 bits del estado");
+
+            // Sede compacta. `sede_global` está ordenado (fase 3), así que la
+            // búsqueda binaria devuelve el índice de la matriz en O(log M).
+            const auto encontrada = std::lower_bound(
+                sede_global.begin(), sede_global.end(), partido.sede_id);
+            assert(encontrada != sede_global.end() &&
+                   *encontrada == partido.sede_id &&
+                   "la sede del partido no esta en la matriz del dia");
+            datos.sede = static_cast<std::uint16_t>(
+                std::distance(sede_global.begin(), encontrada));
+
+            partidos_del_dia.emplace(partido.id, datos);
+        }
+
+        // 2. Expansión: una plaza por cada `domain::Plaza` de un partido del día.
+        std::vector<PlazaDia> plazas;
+        plazas.reserve(instancia.plazas.size());
+
+        for (const domain::Plaza &plaza : instancia.plazas)
+        {
+            const auto encontrado = partidos_del_dia.find(plaza.partido_id);
+            if (encontrado == partidos_del_dia.end())
+            {
+                // La plaza es de un partido de otra jornada: no entra hoy.
+                continue;
+            }
+
+            const PartidoDia &datos = encontrado->second;
+            const domain::Partido &partido = *datos.partido;
+
+            PlazaDia expandida;
+            expandida.minuto_inicio = datos.minuto_inicio;
+            expandida.minuto_fin = datos.minuto_fin;
+            expandida.sede = datos.sede;
+            expandida.nivel_requerido = plaza.nivel_requerido;
+
+            // Conversión a céntimos una sola vez: el coste de dejar vacía la
+            // plaza y todas las comparaciones trabajan en enteros.
+            expandida.retribucion_centimos = a_centimos(plaza.retribucion);
+
+            expandida.rol = plaza.rol;
+            expandida.partido_id = partido.id;
+            expandida.plaza_id = plaza.id;
+            expandida.equipo_local_id = partido.equipo_local_id;
+            expandida.equipo_visitante_id = partido.equipo_visitante_id;
+
+            assert(expandida.nivel_requerido >= 0 &&
+                   "el nivel requerido no puede ser negativo");
+            assert(expandida.retribucion_centimos >= 0 &&
+                   "la retribucion no puede ser negativa");
+
+            plazas.push_back(expandida);
+        }
+
+        // 3. Orden total `(minuto_inicio, sede, partido_id, plaza_id)`. Los ids
+        // desempatan siempre, así que el índice de cada plaza es estable y se
+        // puede usar como nivel del árbol.
+        std::sort(plazas.begin(), plazas.end(),
+                  [](const PlazaDia &izquierda, const PlazaDia &derecha)
+                  {
+                      if (izquierda.minuto_inicio != derecha.minuto_inicio)
+                      {
+                          return izquierda.minuto_inicio < derecha.minuto_inicio;
+                      }
+                      if (izquierda.sede != derecha.sede)
+                      {
+                          return izquierda.sede < derecha.sede;
+                      }
+                      if (izquierda.partido_id != derecha.partido_id)
+                      {
+                          return izquierda.partido_id < derecha.partido_id;
+                      }
+                      return izquierda.plaza_id < derecha.plaza_id;
+                  });
+
+        return plazas;
+    }
+
     InstanciaDia construir_instancia_dia(
         const domain::Instancia &instancia,
         const GrupoDia &grupo,
@@ -315,6 +449,10 @@ namespace referee_scheduler::algorithms
             instancia, grupo, dia.arbitros, proveedor, opciones);
         dia.sede_global = std::move(matriz.sede_global);
         dia.distancias = std::move(matriz.valores);
+
+        // Fase 4: plazas del día ordenadas cronológicamente. Depende de la fase
+        // 3 para traducir la sede del partido a índice compacto.
+        dia.plazas = construir_plazas(instancia, grupo, dia.sede_global);
 
         return dia;
     }

@@ -71,9 +71,9 @@ The domain model, `src/main.cpp`, the packed search state (`algorithms/estado.hp
 - Future idea, **not implemented**: when the gap allows `ida + vuelta + 1 h en casa`, evaluate the same assignment "via home" (`sede = domicilio`, `liberacion += d(actual, domicilio)`) and keep the cheaper of the direct and via-home costs, so long gaps are charged as travel instead of dead time. Detailed in `docs/mejoras-practicas.md`; it needs the travel matrix and the transition generator.
 - Tests: `tests/test_objetivo.cpp` covers cents conversion, first match, en-route wait, positive/negative return adjustment, late arrival, custom k/ε and empty plazas.
 
-## Static data (decided; phases 1–2 implemented)
+## Static data (decided; phases 1–4 implemented)
 
-The design is five sequential phases that prepare the structures for the search. They are **in-memory only** for now; the file loader is step 5f.
+The design is five sequential phases that prepare the structures for the search. Phases 1–4 are implemented in memory; phase 5 (candidate lists) and the file loader (step 5g) are pending.
 
 - **Input aggregate**: `domain::Instancia` (`domain/instancia.hpp`) holds `equipos`, `sedes`, `arbitros`, `partidos`, `plazas`. Header-only, public fields, references by global `int` id.
 - **`Sede` has `latitud`/`longitud`** (WGS84, degrees). Travel times come from the **OSRM** `/table` API, not from a matrix stored in the instance. Both coordinates 0 means "no real coordinates".
@@ -81,12 +81,12 @@ The design is five sequential phases that prepare the structures for the search.
 - **Phase 1, partition by day** (`GrupoDia`, `agrupar_por_dia`): groups `partidos` by the **civil date of `inicio`** (never `final`), returns days sorted and, inside a day, positions in input order. A Friday 23:30 match ending Saturday 01:00 belongs to Friday. Indices are `std::size_t` positions in `Instancia::partidos`, no copies.
 - **Phase 2, referee compaction** (`ArbitroDia`, `compactar_arbitros`): a referee belongs to the day if his availability window (in **absolute minutes**) contains a valid **start** minute of that day (`[dia*1440, dia*1440+1439]`). Comparing already-clamped minutes would wrongly include a referee available only the previous day. `primer_inicio`/`ultimo_inicio` are the window clamped to `[0, 1440]`; **1440 means no limit**. Result sorted by `id_global`, so the compacted id (vector index) is deterministic; the index is `0..N_dia-1`. `equipos_vetados` keeps only teams playing that day, sorted and deduplicated (binary search later).
 - **Availability semantics (user-decided)**: the declared end is a bound on the **match start**, not on the match end. Available until 23:00 ⇒ a match starting at 23:00 is allowed even if it ends after midnight. The declared start means "available at his domicile from then", so the first trip is charged from `primer_inicio`.
-- **Phase 3, distance matrix — implemented**: `algorithms::ProveedorDistancias` (`algorithms/proveedor_distancias.hpp`) defines `Coordenada`, `Minutos = uint16_t` and `kMinutosInalcanzable = 65534`. `construir_matriz_distancias` compacts the day's sedes (**match sedes ∪ referee domiciles**) to `0..M-1` sorted by global id, asserts `M <= 1024` (10-bit `sede_id`), asks the provider for the **full matrix**, forces the diagonal to 0 and optionally applies `cerrar_metricamente` (Floyd–Warshall, `uint32` sums, unreachable cells never used as bridges). It also fills `ArbitroDia::sede_domicilio` with the compact index. `construir_instancia_dia` (phases 1–3) and `construir_instancias` exist. `OpcionesDistancias { bool cerrar_metricamente = true; }`.
+- **Phase 3, distance matrix — implemented**: `algorithms::ProveedorDistancias` (`algorithms/proveedor_distancias.hpp`) defines `Coordenada`, `Minutos = uint16_t` and `kMinutosInalcanzable = 65534`. `construir_matriz_distancias` compacts the day's sedes (**match sedes ∪ referee domiciles**) to `0..M-1` sorted by global id, asserts `M <= 1024` (10-bit `sede_id`), asks the provider for the **full matrix**, forces the diagonal to 0 and optionally applies `cerrar_metricamente` (Floyd–Warshall, `uint32` sums, unreachable cells never used as bridges). It also fills `ArbitroDia::sede_domicilio` with the compact index. `construir_instancia_dia` (phases 1–4) and `construir_instancias` exist. `OpcionesDistancias { bool cerrar_metricamente = true; }`.
   - The OSRM client is `io/osrm.hpp` + `src/io/osrm.cpp`: `build_url` uses `lon,lat` with 6 decimals; the server limit is on **table dimensions** (verified: 100 rows × 100 cols with 200 coordinates in the URL returns 200), so it batches 100 sources × 100 destinations, keeps all coordinates in the URL, omits `sources`/`destinations` for the full matrix, parses `durations` with a minimal JSON scanner (`null` → unreachable, `ceil(sec/60)`), and caches with an **FNV-1a** key in `data/generated/distancias_<hash>.txt` (gitignored). Network/HTTP errors throw `std::runtime_error`; the constructor clamps `maximo_por_peticion` to ≥ 1.
   - Tests: `test_instancia.cpp` (fake providers, asymmetric matrix, closure, unreachable, compacted domiciles, 3-day pipeline) and `test_osrm.cpp` (offline: conversion, JSON parsing, URL).
-- **Phase 4 (planned)**: expand partidos into `PlazaDia` sorted by `(minuto_inicio, sede, partido_id, plaza_id)`; index = tree level; `es_principal = (rol == Principal)`; carry `minuto_inicio`, `minuto_fin`, `nivel_requerido`, `retribucion_centimos` (`a_centimos` from `objetivo.hpp`) and both team ids.
+- **Phase 4, chronological plazas — implemented**: `construir_plazas(instancia, grupo, sede_global)` expands the day's matches into `PlazaDia` records sorted by `(minuto_inicio, sede, partido_id, plaza_id)`; the index in `InstanciaDia::plazas` **is the tree level**. `PlazaDia` (48 B, trivially copyable) carries `minuto_inicio`, `minuto_fin`, the compact `sede` (`uint16_t`), `nivel_requerido`, `retribucion_centimos` (`a_centimos`, converted once), `rol`, `partido_id`, `plaza_id` and both team ids; `es_principal()` is the `rol == Rol::Principal` test, so the role is stored instead of a duplicated bool. Decisions closed here: (a) the tie-break is `(minuto_inicio, compact sede, partido_id, plaza_id)` — total and deterministic, and the compact sede orders like the global id; (b) `minuto_fin` is the **end of the match**, measured in absolute minutes from the day's 00:00, so a Friday 23:30→01:00 match ends at **1500** (`minuto_en_dia` would clamp it to 1440) and it is exactly the referee's release minute. Per-match data (minutes, compact sede) is computed once, not once per plaza; plazas whose match is not in the day are skipped. `InstanciaDia` exposes `plazas` and `n_plazas()`; `construir_instancia_dia` chains phases 1–4.
 - **Phase 5 (planned)**: per-plaza candidate lists in a flat CSR (`std::vector<uint32_t>` + offsets of size `n_plazas()+1`). Filters: `nivel >= nivel_requerido`, `primer_inicio <= minuto_inicio <= ultimo_inicio`, no veto on either team, and **reachability** `primer_inicio + d(domicilio, sede) <= minuto_inicio` (plus `d != kMinutosInalcanzable`).
-- Tests: `tests/test_instancia.cpp` covers phases 1–3 (and the time utilities); it must grow one block per phase.
+- Tests: `tests/test_instancia.cpp` covers phases 1–4 (and the time utilities); it must grow one block per phase.
 
 ## Roadmap / scope
 
@@ -101,21 +101,21 @@ Agreed order:
    b. Per-day referee compaction (global id -> `0..N_dia-1`) and sede remap. **Implemented**: `compactar_arbitros` and `construir_matriz_distancias`.
    c. Travel-time matrix. **Implemented**: OSRM `/table` via `io::OsrmDistancias`, with cache.
    d. Minute offsets for match start/end. **Implemented**: `tiempo.hpp` with `t0 = 00:00`.
-   e. Chronological ordering of plazas. **Pending** (phase 4).
+   e. Chronological ordering of plazas. **Implemented**: `construir_plazas` / `PlazaDia` (phase 4).
    f. Per-plaza candidate lists (CSR + reachability). **Pending** (phase 5).
-   g. Instance loader / file format (`data/instances/`). **Pending** (step 5f, after the phases).
+   g. Instance loader / file format (`data/instances/`). **Pending** (step 5g, after the phases).
 6. **Assemble Dijkstra / A\***.
 7. **Final validation**: recompute constraints and cost from the reconstructed assignments.
 
 ## Known gaps / pending decisions
 
-- Phase 4 must fix the exact tie-break of the plaza order (`(minuto_inicio, sede, partido_id, plaza_id)` is the agreed one) and whether `PlazaDia` stores `minuto_fin` as the end of the match or as the first free minute (today: end of the match).
+- Phase 4 is closed: the plaza order is `(minuto_inicio, compact sede, partido_id, plaza_id)` and `PlazaDia::minuto_fin` is the match end in absolute minutes of the day (can exceed 1440). It is exactly the referee's release minute, so the transition generator must write it into `EstadoArbitro::minuto_liberacion`. A plaza whose `partido_id` does not exist is silently ignored by `construir_plazas`; validating referential integrity is the loader's job.
 - The public OSRM demo server is for demos and has limits/rate limits. `OpcionesOsrm::url` is configurable for a local Docker instance; do not hardcode the demo URL anywhere else. The cache key includes URL + profile + coordinates.
 - `Sede` coordinates are required: a sede with both at 0 triggers an `assert` in `construir_matriz_distancias`.
 - `Arbitro::disponibilidad_*` are `time_t`; the conversion is done in `tiempo.hpp`. The declared start means "available at home from then" (not "can leave home earlier to arrive on time"): that would need a per-referee departure field that does not fit in `EstadoArbitro`.
 - `kMaxArbitros = 600` is a hard cap; if the real instance exceeds it, that is a bug. The 10-bit `sede_id` requires `M_dia <= 1024`, guaranteed by per-day sede compaction.
 - Node budget / memory limit, tie-breaking/determinism, and the parallel mechanism for the three days are undefined.
-- Tests cover smoke, arena, objective, static-data phases 1–3 and the OSRM client (offline); grow them as phases 4–5 land.
+- Tests cover smoke, arena, objective, static-data phases 1–4 and the OSRM client (offline); grow them as phase 5 lands.
 - No benchmark or baseline yet; `docs/optimizaciones.md` proposes a minimal arena benchmark to be added once the search runs.
 
 ## Rules
