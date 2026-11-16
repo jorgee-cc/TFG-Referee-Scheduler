@@ -192,10 +192,10 @@ namespace referee_scheduler::algorithms
         /// desempatan siempre igual y la búsqueda es reproducible.
         ///
         /// Estar en la lista es solo una condición **necesaria**: significa que
-        /// el árbitro cumple nivel, ventana y vetos y que existe ruta desde su
-        /// domicilio. Que además llegue a tiempo depende del estado (dónde está y
-        /// cuándo queda libre), y eso lo comprueba el generador de hijos con
-        /// `coste_asignar`.
+        /// el árbitro cumple nivel, ventana y vetos y que existe ruta de ida y
+        /// vuelta entre su domicilio y la sede. Que además llegue a tiempo
+        /// depende del estado (dónde está y cuándo queda libre), y eso lo
+        /// comprueba el generador de hijos con `coste_asignar`.
         std::vector<std::uint32_t> candidatos;
 
         /// Fronteras del CSR: `n_plazas() + 1` valores, `offset_candidatos[0] =

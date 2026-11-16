@@ -1,7 +1,8 @@
 # Registro de los ejecutables de prueba del proyecto, uno por área: humo del
-# estado, arena de nodos, función objetivo y construcción de los datos
-# estáticos. Cada uno se enlaza con `referee_scheduler_algorithms` y se da de
-# alta en CTest con `add_test`, de modo que `ctest` los ejecute todos.
+# estado, arena de nodos, función objetivo, construcción de los datos estáticos
+# y transiciones de la búsqueda. Cada uno se enlaza con
+# `referee_scheduler_algorithms` y se da de alta en CTest con `add_test`, de modo
+# que `ctest` los ejecute todos.
 
 add_executable(referee_scheduler_tests
     test_smoke.cpp
@@ -53,6 +54,19 @@ target_link_libraries(referee_scheduler_instancia_tests
 )
 
 add_test(NAME referee_scheduler_instancia COMMAND referee_scheduler_instancia_tests)
+
+# Las transiciones del paso 3: estado inicial, raíz, generación de hijos (con
+# vector y con callback) y reconstrucción de la solución.
+add_executable(referee_scheduler_transiciones_tests
+    test_transiciones.cpp
+)
+
+target_link_libraries(referee_scheduler_transiciones_tests
+    PRIVATE
+        referee_scheduler_algorithms
+)
+
+add_test(NAME referee_scheduler_transiciones COMMAND referee_scheduler_transiciones_tests)
 
 # El cliente OSRM se prueba sin red (conversión, parseo del JSON y URL). Solo
 # se registra si libcurl estaba disponible al configurar CMake.

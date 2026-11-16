@@ -543,11 +543,16 @@ namespace referee_scheduler::algorithms
                     continue;
                 }
 
-                // 4. Ruta: sin camino desde el domicilio no hay forma de cubrir
-                //    la plaza ni siquiera como primer partido. Cuanto tarde el
-                //    viaje ya no importa aqui (ver el comentario de la ventana).
+                // 4. Ruta de ida y vuelta: el objetivo cobra el viaje de ida y
+                //    usa el de vuelta para el ajuste telescópico del retorno.
+                //    Si falta cualquiera de los dos, la transición no se puede
+                //    valorar: un centinela en el retorno produciría costes
+                //    falsos o negativos. Cuanto tarde el viaje ya no importa
+                //    aquí (ver el comentario de la ventana).
                 if (dia.viaje(arbitro.domicilio, plaza.sede) ==
-                    kMinutosInalcanzable)
+                        kMinutosInalcanzable ||
+                    dia.viaje(plaza.sede, arbitro.domicilio) ==
+                        kMinutosInalcanzable)
                 {
                     continue;
                 }

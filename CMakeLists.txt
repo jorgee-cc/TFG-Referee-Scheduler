@@ -33,6 +33,7 @@ add_library(referee_scheduler_algorithms STATIC
     src/algorithms/construir_instancia.cpp
     src/algorithms/instancia_dia.cpp
     src/algorithms/tiempo.cpp
+    src/algorithms/transiciones.cpp
 )
 
 target_link_libraries(referee_scheduler_algorithms

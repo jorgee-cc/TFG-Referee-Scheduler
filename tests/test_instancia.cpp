@@ -1019,6 +1019,36 @@ int main()
                   "con ruta desde el domicilio el arbitro es candidato");
     }
 
+    // Ida posible pero vuelta imposible: el objetivo necesita el retorno a casa
+    // para el ajuste telescópico, así que la plaza tampoco es candidata.
+    {
+        Instancia una_direccion;
+        una_direccion.partidos.push_back(partido(
+            0, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 19, 0)));
+        una_direccion.partidos[0].sede_id = 1;
+        una_direccion.plazas.push_back(plaza(920, 0, Rol::Asistente, 1, 10.0));
+        una_direccion.arbitros.push_back(arbitro(
+            1, 1, 2, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 20, 0),
+            {}));
+        una_direccion.sedes = {sede(1), sede(2)};
+        const std::vector<GrupoDia> grupos_una_direccion =
+            agrupar_por_dia(una_direccion);
+
+        // Orden compacto: sede 1 (partido) -> 0, domicilio 2 -> 1.
+        // Fila 0: [0, inalcanzable] (no hay vuelta); fila 1: [5, 0] (sí hay ida).
+        ProveedorGuionizado solo_ida(
+            {0, kMinutosInalcanzable, 5, 0});
+        const InstanciaDia dia_una_direccion = construir_instancia_dia(
+            una_direccion, grupos_una_direccion[0], solo_ida, con_cierre);
+
+        comprobar(dia_una_direccion.viaje(1, 0) == 5,
+                  "la ida desde el domicilio existe");
+        comprobar(dia_una_direccion.viaje(0, 1) == kMinutosInalcanzable,
+                  "la vuelta al domicilio no existe");
+        comprobar(dia_una_direccion.n_candidatos(0) == 0,
+                  "sin ruta de vuelta la plaza no tiene candidatos");
+    }
+
     // Un día sin árbitros deja listas vacías, pero con el CSR bien formado.
     {
         ProveedorConstante constante(7);

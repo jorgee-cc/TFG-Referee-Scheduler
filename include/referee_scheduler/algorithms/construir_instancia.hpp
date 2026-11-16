@@ -198,9 +198,13 @@ namespace referee_scheduler::algorithms
     /// 3. **Vetos**: el árbitro no puede tener vetado a ninguno de los dos
     ///    equipos del partido (`equipos_vetados` está ordenado y recortado a los
     ///    equipos del día, así que la prueba es una búsqueda binaria).
-    /// 4. **Ruta**: `d(domicilio, sede) != kMinutosInalcanzable`. No hace falta
-    ///    que el viaje quepa en ningún hueco; solo que exista camino, porque sin
-    ///    él no hay forma de cubrir la plaza ni siquiera como primer partido.
+    /// 4. **Ruta de ida y vuelta**: `d(domicilio, sede) != kMinutosInalcanzable`
+    ///    y `d(sede, domicilio) != kMinutosInalcanzable`. No basta con que se
+    ///    pueda ir: la función objetivo usa el retorno a casa para el ajuste
+    ///    telescópico, y un centinela ahí produciría costes falsos o negativos.
+    ///    Tampoco se exige que el viaje quepa en ningún hueco; solo que exista
+    ///    camino en los dos sentidos, porque sin él no hay forma de cubrir la
+    ///    plaza ni siquiera como primer partido.
     ///
     /// Que el árbitro llegue a tiempo desde donde esté en un nodo concreto
     /// depende del estado (sede actual y minuto de liberación) y **no** se puede

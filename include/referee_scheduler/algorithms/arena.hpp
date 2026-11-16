@@ -27,12 +27,53 @@ namespace referee_scheduler::algorithms
     /// Índice que significa "no hay nodo". Se usa, por ejemplo, como `padre` de la raíz.
     inline constexpr std::uint32_t kSinNodo = std::numeric_limits<std::uint32_t>::max();
 
+    /// Valor de `CabeceraNodo::decision` para una plaza que se deja vacía.
+    ///
+    /// Se elige el mayor valor de 32 bits para no confundirlo con ningún id
+    /// compacto de árbitro (`0..kMaxArbitros-1`).
+    inline constexpr std::uint32_t kDecisionVacia = 0xFFFFFFFFu;
+
+    /// Valor de `CabeceraNodo::decision` en la raíz: no hay decisión previa.
+    inline constexpr std::uint32_t kSinDecision = 0xFFFFFFFEu;
+
+    // Los dos centinelas deben ser distintos entre sí y quedar por encima de
+    // cualquier id compacto de árbitro; así `decision_es_asignacion` no tiene
+    // que consultar la instancia del día para descartarlos.
+    static_assert(kDecisionVacia != kSinDecision,
+                  "los centinelas de decision deben ser distintos");
+    static_assert(static_cast<std::uint64_t>(kMaxArbitros) < kSinDecision,
+                  "los ids compactos de arbitro no deben alcanzar los centinelas");
+
+    /// ¿La decisión asigna la plaza a un árbitro compacto?
+    constexpr bool decision_es_asignacion(std::uint32_t decision) noexcept
+    {
+        return decision < static_cast<std::uint32_t>(kMaxArbitros);
+    }
+
+    /// ¿La decisión deja la plaza vacía?
+    constexpr bool decision_es_vacia(std::uint32_t decision) noexcept
+    {
+        return decision == kDecisionVacia;
+    }
+
+    /// ¿Es la decisión de la raíz (sin decisión)?
+    constexpr bool decision_es_raiz(std::uint32_t decision) noexcept
+    {
+        return decision == kSinDecision;
+    }
+
+    /// Bits de `CabeceraNodo::flags` reservados para la frontera del paso 4.
+    ///
+    /// El generador de hijos los deja a cero; la frontera decidirá cuándo marcar
+    /// un nodo como abierto o cerrado.
+    inline constexpr std::uint32_t kFlagAbierto = 1u << 0;
+    inline constexpr std::uint32_t kFlagCerrado = 1u << 1;
+
     /// Cabecera de decisión que la arena guarda delante del estado de cada nodo.
     ///
     /// Son los 24 B de "metadatos" del bloque: no forman parte del estado físico
-    /// del día, sino del nodo de búsqueda. Los campos son provisionales (el paso
-    /// de transiciones y el de frontera fijarán su uso exacto), pero el tamaño NO
-    /// puede cambiar sin tocar la fórmula del bloque de la arena:
+    /// del día, sino del nodo de búsqueda. El tamaño NO puede cambiar sin tocar
+    /// la fórmula del bloque de la arena:
     ///
     ///     tam_bloque = sizeof(CabeceraNodo) + 4 * n_arbitros
     ///
@@ -53,8 +94,14 @@ namespace referee_scheduler::algorithms
         /// la frontera; aquí solo se reserva el hueco.
         std::uint32_t flags = 0;
 
-        /// Bits libres para no cambiar el layout si aparece otra necesidad.
-        std::uint32_t reservado = 0;
+        /// Decisión que llevó a este nodo desde su padre:
+        ///  - `0 .. n_arbitros-1`: se asignó la plaza a ese árbitro compacto;
+        ///  - `kDecisionVacia`: se dejó la plaza vacía;
+        ///  - `kSinDecision`: nodo raíz, sin decisión.
+        ///
+        /// Guardarla aquí evita reconstruir la solución comparando estados.
+        /// Para leerla, un nodo con `nivel = p + 1` decidió `plazas[p]`.
+        std::uint32_t decision = kSinDecision;
     };
 
     static_assert(sizeof(CabeceraNodo) == 24,

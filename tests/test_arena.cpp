@@ -20,6 +20,7 @@ using referee_scheduler::algorithms::CabeceraNodo;
 using referee_scheduler::algorithms::Estado;
 using referee_scheduler::algorithms::EstadoArbitro;
 using referee_scheduler::algorithms::kMaxArbitros;
+using referee_scheduler::algorithms::kSinDecision;
 using referee_scheduler::algorithms::kSinNodo;
 
 int fallos = 0;
@@ -75,7 +76,7 @@ void probar_tamano_y_copia(std::size_t n) {
     cabecera.padre = kSinNodo;
     cabecera.nivel = 3;
     cabecera.flags = 5;
-    cabecera.reservado = 0;
+    cabecera.decision = kSinDecision;
 
     const std::uint32_t nodo = arena.crear(origen, cabecera);
 
@@ -85,6 +86,8 @@ void probar_tamano_y_copia(std::size_t n) {
     comprobar(arena.cabecera(nodo).padre == kSinNodo, "padre debe conservarse");
     comprobar(arena.cabecera(nodo).nivel == 3, "nivel debe conservarse");
     comprobar(arena.cabecera(nodo).flags == 5, "flags debe conservarse");
+    comprobar(arena.cabecera(nodo).decision == kSinDecision,
+              "decision debe conservarse");
 
     const std::span<const EstadoArbitro> vista = arena.estado(nodo);
     comprobar(vista.size() == n, "el span debe medir exactamente n_arbitros");

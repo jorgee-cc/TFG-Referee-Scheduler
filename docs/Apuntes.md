@@ -47,8 +47,12 @@ estado, frontera de búsqueda, datos estáticos, ensamblado de Dijkstra y valida
 - **La arena de búsqueda** vive en `algorithms::Arena` (`include/referee_scheduler/algorithms/arena.hpp`):
   - Cada nodo es un bloque contiguo de `24 + 4·n_arbitros` bytes: `CabeceraNodo` (24 B) + un
     `EstadoArbitro` por árbitro. El *stride* se calcula en ejecución y se redondea a 8 B.
-  - `CabeceraNodo`: `coste_g` (int64), `padre`, `nivel`, `flags`, `reservado`; 24 B exactos porque
-    entran en la fórmula del bloque. `kSinNodo` = "sin padre".
+  - `CabeceraNodo`: `coste_g` (int64), `padre`, `nivel`, `flags`, `decision`; 24 B exactos porque
+    entran en la fórmula del bloque. `kSinNodo` = "sin padre". `decision` guarda `0..N-1` (árbitro
+    compacto asignado), `kDecisionVacia` o `kSinDecision` (raíz); así la solución se reconstruye
+    leyendo la cadena de padres, sin comparar estados.
+  - `flags` queda reservado para la frontera (bits `kFlagAbierto`/`kFlagCerrado`); el generador de
+    hijos lo deja a cero.
   - Recibe `n_arbitros` en el constructor (no depende del cargador ni de `Instancia`).
   - `estado(nodo)` devuelve un `std::span` de longitud `n_arbitros`: no se puede iterar el relleno.
     `crear(Estado, ...)` copia solo `[0, n_arbitros)` e ignora la cola.
@@ -57,10 +61,44 @@ estado, frontera de búsqueda, datos estáticos, ensamblado de Dijkstra y valida
   - Optimizaciones de hardware estudiadas (zeroing, división, hugepages/TLB): **no implementadas**,
     documentadas en `docs/optimizaciones.md` para cuando el algoritmo funcione y se pueda medir.
 
-## Datos estáticos (fases 1-2 implementadas)
+## Transiciones (paso 3 implementado)
+
+`include/referee_scheduler/algorithms/transiciones.hpp` + `src/algorithms/transiciones.cpp` preparan
+el árbol de búsqueda. La escritura por asignación es de 4 B: `sede_id = plaza.sede`,
+`minuto_liberacion = plaza.minuto_fin`, `reservado = 0`.
+
+- **Estado inicial** (`estado_inicial`): cada árbitro compacto queda en su domicilio
+  (`sede_id = ArbitroDia::domicilio`), libre desde `primer_inicio` y con `reservado = 0`. La cola
+  `[n_arbitros, kMaxArbitros)` se deja a cero. Estar en el domicilio es la marca del régimen "aún
+  no ha salido de casa" de `coste_asignar`.
+- **Raíz** (`crear_raiz`): exige una arena nueva (`nodos_creados() == 0`), mismo `n_arbitros` y
+  `n_arbitros > 0`. Crea el nodo 0 con coste 0, `padre = kSinNodo`, `nivel = 0`, `flags = 0` y
+  `decision = kSinDecision`.
+- **Meta** (`es_meta`): `nivel == n_plazas()`. El nivel es el número de plazas decididas y el índice
+  de la siguiente; el coste de la meta ya incluye viajes, esperas, retornos telescópicos y plazas
+  vacías, sin coste terminal adicional.
+- **Generación de hijos** (`generar_hijos`): dos formas que comparten `detalle::generar_hijos_impl`:
+  1. con `std::vector<std::uint32_t>&` de salida (se limpia y se rellena);
+  2. con callback, plantilla en cabecera, para insertar directamente en la frontera sin vector
+     intermedio.
+  El orden es determinista: candidatos ascendentes y después la rama vacía. Por cada candidato se
+  leen tres distancias, se llama a `coste_asignar`, se copia el estado del padre y se parchea solo el
+  registro del árbitro. La rama vacía copia el estado intacto y cobra `coste_dejar_vacia`; las
+  principales no la tienen. Cualquier celda `kMinutosInalcanzable` descarta el hijo.
+- **Factibilidad estática** (`tiene_solucion_estatica`): toda plaza principal debe tener al menos un
+  candidato. Es necesaria, no suficiente: la llegada tarde depende del estado. Los días sin árbitros
+  y solo secundarias son válidos (todas vacías); una principal sin candidatos es infeasible.
+- **Reconstrucción** (`reconstruir_solucion`): sube de la meta a la raíz leyendo `decision`. Un nodo
+  con `nivel = p + 1` decidió `plazas[p]`; devuelve `SolucionDia` con coste y `DecisionDia`
+  (`plaza_id`, `partido_id`, `arbitro_global`; `-1` si quedó vacía) en orden cronológico.
+- Tests: `tests/test_transiciones.cpp` cubre estado inicial, raíz, primer viaje desde casa, plaza
+  vacía, principal sin candidatos, llegada tarde, factibilidad estática, centinela de vuelta,
+  equivalencia callback/vector y reconstrucción exacta (982 céntimos en el caso de dos partidos).
+
+## Datos estáticos (fases 1-5 implementadas)
 
 La carga de la instancia se divide en cinco fases que preparan la búsqueda. De momento es
-**construcción en memoria**; el cargador de fichero es el paso 5f.
+**construcción en memoria**; el cargador de fichero es el paso 5g.
 
 - **Agregado de entrada**: `domain::Instancia` (`domain/instancia.hpp`) con los vectores de
   `Equipo`, `Sede`, `Arbitro`, `Partido` y `Plaza`. Header-only y con referencias por `id`.
@@ -120,8 +158,10 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
   `InstanciaDia::offset_candidatos` (`n_plazas + 1` fronteras) y `InstanciaDia::candidatos`. Una
   sola pasada plaza × árbitro con cuatro filtros estáticos: nivel (`nivel >= nivel_requerido`),
   ventana (`primer_inicio <= minuto_inicio <= ultimo_inicio`), vetos (ni el local ni el visitante en
-  `equipos_vetados`, búsqueda binaria) y **existencia de ruta** desde el domicilio
-  (`d(domicilio, sede) != kMinutosInalcanzable`). No se suma el viaje a `primer_inicio`: el primer
+  `equipos_vetados`, búsqueda binaria) y **ruta de ida y vuelta** entre domicilio y sede
+  (`d(domicilio, sede) != kMinutosInalcanzable` **y** `d(sede, domicilio) != kMinutosInalcanzable`).
+  La vuelta es necesaria porque el objetivo usa el retorno para el ajuste telescópico; un centinela
+  ahí produciría costes falsos o negativos. No se suma el viaje a `primer_inicio`: el primer
   desplazamiento puede empezar antes de la disponibilidad, y esta es exactamente la condición de
   factibilidad que aplica `coste_asignar` en el régimen "en el domicilio". Los candidatos son ids
   **compactos** (`0..n_arbitros-1`), salen en orden ascendente dentro de cada plaza (desempate
@@ -151,5 +191,7 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
   _Adoptado en la compactación por día._
 - Arena por bloques para los estados, con punteros estables. _Adoptado en `algorithms::Arena`._
 - Copiar solo `4 · N_dia` bytes del estado cuando se compacta por día. _Adoptado._
+- Generar hijos con callback para que una frontera futura inserte directamente, sin vector
+  intermedio; la variante con `std::vector` se mantiene por comodidad y para tests. _Adoptado._
 - Structs/trivialmente copiables para permitir `memcpy` y mejorar localidad de caché. _Adoptado en
   `algorithms::Estado`._
