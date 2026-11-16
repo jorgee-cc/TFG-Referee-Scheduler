@@ -1,0 +1,42 @@
+{
+  "equipos": [
+    {"id": 1, "nombre": "Riazor CF"},
+    {"id": 2, "nombre": "Atlántico SD"},
+    {"id": 3, "nombre": "Torre FC"},
+    {"id": 4, "nombre": "Compostela B"},
+    {"id": 5, "nombre": "Bergantiños CF"},
+    {"id": 6, "nombre": "Orzán CD"}
+  ],
+  "sedes": [
+    {"id": 10, "nombre": "Campo de Riazor", "latitud": 43.3686, "longitud": -8.4179},
+    {"id": 11, "nombre": "Campo de A Torre", "latitud": 43.355, "longitud": -8.414},
+    {"id": 12, "nombre": "Campo de Elviña", "latitud": 43.3296, "longitud": -8.41},
+    {"id": 100, "nombre": "Domicilio árbitro 1", "latitud": 43.33, "longitud": -8.455},
+    {"id": 101, "nombre": "Domicilio árbitro 2", "latitud": 43.3321, "longitud": -8.455},
+    {"id": 102, "nombre": "Domicilio árbitro 3", "latitud": 43.3342, "longitud": -8.455},
+    {"id": 103, "nombre": "Domicilio árbitro 4", "latitud": 43.3363, "longitud": -8.455},
+    {"id": 104, "nombre": "Domicilio árbitro 5", "latitud": 43.3384, "longitud": -8.455},
+    {"id": 105, "nombre": "Domicilio árbitro 6", "latitud": 43.3405, "longitud": -8.455}
+  ],
+  "arbitros": [
+    {"id": 1, "nivel": 3, "domicilio_id": 100, "disponibilidad_inicio": "2026-11-20T08:00:00", "disponibilidad_fin": "2026-11-20T23:59:00"},
+    {"id": 2, "nivel": 2, "domicilio_id": 101, "disponibilidad_inicio": "2026-11-20T08:00:00", "disponibilidad_fin": "2026-11-20T23:59:00"},
+    {"id": 3, "nivel": 2, "domicilio_id": 102, "disponibilidad_inicio": "2026-11-20T08:00:00", "disponibilidad_fin": "2026-11-20T23:00:00"},
+    {"id": 4, "nivel": 1, "domicilio_id": 103, "disponibilidad_inicio": "2026-11-20T08:00:00", "disponibilidad_fin": "2026-11-20T23:00:00"},
+    {"id": 5, "nivel": 1, "domicilio_id": 104, "disponibilidad_inicio": "2026-11-20T08:00:00", "disponibilidad_fin": "2026-11-20T23:00:00"},
+    {"id": 6, "nivel": 2, "domicilio_id": 105, "disponibilidad_inicio": "2026-11-20T08:00:00", "disponibilidad_fin": "2026-11-20T23:00:00"}
+  ],
+  "partidos": [
+    {"id": 1000, "sede_id": 10, "inicio": "2026-11-20T12:00:00", "final": "2026-11-20T13:30:00", "equipo_local_id": 1, "equipo_visitante_id": 2},
+    {"id": 1001, "sede_id": 11, "inicio": "2026-11-20T17:30:00", "final": "2026-11-20T19:00:00", "equipo_local_id": 3, "equipo_visitante_id": 4},
+    {"id": 1002, "sede_id": 12, "inicio": "2026-11-20T23:30:00", "final": "2026-11-21T01:00:00", "equipo_local_id": 5, "equipo_visitante_id": 6}
+  ],
+  "plazas": [
+    {"id": 10000, "partido_id": 1000, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
+    {"id": 10001, "partido_id": 1000, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10002, "partido_id": 1001, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
+    {"id": 10003, "partido_id": 1001, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10004, "partido_id": 1002, "rol": "principal", "nivel_requerido": 3, "retribucion": 48.0},
+    {"id": 10005, "partido_id": 1002, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0}
+  ]
+}

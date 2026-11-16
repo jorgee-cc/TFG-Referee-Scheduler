@@ -1,0 +1,95 @@
+{
+  "equipos": [
+    { "id": 1, "nombre": "Deportivo A" },
+    { "id": 2, "nombre": "Racing B" },
+    { "id": 3, "nombre": "Compostela C" },
+    { "id": 4, "nombre": "Bergantiños D" }
+  ],
+  "sedes": [
+    { "id": 10, "nombre": "Campo de Riazor", "latitud": 43.3686, "longitud": -8.4179 },
+    { "id": 11, "nombre": "Campo de A Torre", "latitud": 43.3550, "longitud": -8.4140 },
+    { "id": 101, "nombre": "Domicilio árbitro 1", "latitud": 43.3620, "longitud": -8.4090 },
+    { "id": 102, "nombre": "Domicilio árbitro 2", "latitud": 43.3750, "longitud": -8.4250 },
+    { "id": 103, "nombre": "Domicilio árbitro 3", "latitud": 43.3500, "longitud": -8.4300 },
+    { "id": 104, "nombre": "Domicilio árbitro 4", "latitud": 43.3800, "longitud": -8.3950 }
+  ],
+  "arbitros": [
+    {
+      "id": 1,
+      "nivel": 2,
+      "domicilio_id": 101,
+      "vetos": [2],
+      "disponibilidad_inicio": "2026-11-20T08:00:00",
+      "disponibilidad_fin": "2026-11-20T23:00:00"
+    },
+    {
+      "id": 2,
+      "nivel": 2,
+      "domicilio_id": 102,
+      "disponibilidad_inicio": "2026-11-20T08:00:00",
+      "disponibilidad_fin": "2026-11-20T23:00:00"
+    },
+    {
+      "id": 3,
+      "nivel": 1,
+      "domicilio_id": 103,
+      "disponibilidad_inicio": "2026-11-20T10:00:00",
+      "disponibilidad_fin": "2026-11-20T23:30:00"
+    },
+    {
+      "id": 4,
+      "nivel": 1,
+      "domicilio_id": 104,
+      "disponibilidad_inicio": "2026-11-20T15:00:00",
+      "disponibilidad_fin": "2026-11-20T23:00:00"
+    }
+  ],
+  "partidos": [
+    {
+      "id": 100,
+      "sede_id": 10,
+      "inicio": "2026-11-20T18:00:00",
+      "final": "2026-11-20T19:45:00",
+      "equipo_local_id": 1,
+      "equipo_visitante_id": 2
+    },
+    {
+      "id": 101,
+      "sede_id": 11,
+      "inicio": "2026-11-20T20:00:00",
+      "final": "2026-11-20T21:30:00",
+      "equipo_local_id": 3,
+      "equipo_visitante_id": 4
+    }
+  ],
+  "plazas": [
+    {
+      "id": 1000,
+      "partido_id": 100,
+      "rol": "principal",
+      "nivel_requerido": 2,
+      "retribucion": 45.0
+    },
+    {
+      "id": 1001,
+      "partido_id": 100,
+      "rol": "asistente",
+      "nivel_requerido": 1,
+      "retribucion": 25.0
+    },
+    {
+      "id": 1002,
+      "partido_id": 101,
+      "rol": "principal",
+      "nivel_requerido": 2,
+      "retribucion": 50.0
+    },
+    {
+      "id": 1003,
+      "partido_id": 101,
+      "rol": "asistente",
+      "nivel_requerido": 1,
+      "retribucion": 30.0
+    }
+  ]
+}

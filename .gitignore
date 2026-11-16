@@ -10,3 +10,7 @@ compile_commands.json
 # Resultados generados
 data/generated/
 results/
+
+# Python
+__pycache__/
+*.pyc

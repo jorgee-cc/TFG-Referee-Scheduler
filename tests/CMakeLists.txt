@@ -107,9 +107,60 @@ target_link_libraries(referee_scheduler_busqueda_tests
 
 add_test(NAME referee_scheduler_busqueda COMMAND referee_scheduler_busqueda_tests)
 
+# El parser JSON y el cargador de instancias: sintaxis, esquema, referencias y
+# errores contextualizados.
+add_executable(referee_scheduler_json_tests
+    test_json.cpp
+)
+
+target_link_libraries(referee_scheduler_json_tests
+    PRIVATE
+        referee_scheduler_io
+)
+
+add_test(NAME referee_scheduler_json COMMAND referee_scheduler_json_tests)
+
+# Informes: resumen de terminal sin volcado y JSON completo reparseable.
+add_executable(referee_scheduler_informe_tests
+    test_informe.cpp
+)
+
+target_link_libraries(referee_scheduler_informe_tests
+    PRIVATE
+        referee_scheduler_io
+)
+
+add_test(NAME referee_scheduler_informe COMMAND referee_scheduler_informe_tests)
+
+# Métricas por árbitro reconstruidas con una matriz fija: viajes, esperas,
+# retribuciones y tarifa efectiva.
+add_executable(referee_scheduler_metricas_tests
+    test_metricas.cpp
+)
+
+target_link_libraries(referee_scheduler_metricas_tests
+    PRIVATE
+        referee_scheduler_algorithms
+)
+
+add_test(NAME referee_scheduler_metricas COMMAND referee_scheduler_metricas_tests)
+
+# Orquestación de una instancia completa con un proveedor de distancias falso:
+# días triviales, sin solución y búsqueda real.
+add_executable(referee_scheduler_orquestacion_tests
+    test_orquestacion.cpp
+)
+
+target_link_libraries(referee_scheduler_orquestacion_tests
+    PRIVATE
+        referee_scheduler_io
+)
+
+add_test(NAME referee_scheduler_orquestacion COMMAND referee_scheduler_orquestacion_tests)
+
 # El cliente OSRM se prueba sin red (conversión, parseo del JSON y URL). Solo
 # se registra si libcurl estaba disponible al configurar CMake.
-if(TARGET referee_scheduler_io)
+if(TARGET CURL::libcurl)
     add_executable(referee_scheduler_osrm_tests
         test_osrm.cpp
     )

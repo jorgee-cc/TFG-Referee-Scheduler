@@ -159,10 +159,10 @@ modelo de coste.
   `test_busqueda.cpp` (982 céntimos, secundaria vacía, principal sin candidatos, presupuesto, día
   sin plazas y duplicados contra un recorrido exhaustivo, también con cubos anchos).
 
-## Datos estáticos (fases 1-5 implementadas)
+## Datos estáticos (fases 1-5 y carga JSON implementadas)
 
-La carga de la instancia se divide en cinco fases que preparan la búsqueda. De momento es
-**construcción en memoria**; el cargador de fichero es el paso 5g.
+La carga de la instancia se divide en cinco fases que preparan la búsqueda. Están implementadas en
+memoria y el cargador de fichero (paso 5g) ya construye `domain::Instancia` desde un JSON.
 
 - **Agregado de entrada**: `domain::Instancia` (`domain/instancia.hpp`) con los vectores de
   `Equipo`, `Sede`, `Arbitro`, `Partido` y `Plaza`. Header-only y con referencias por `id`.
@@ -233,6 +233,30 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
   (llegar tarde desde donde esté en el nodo) la decide el generador de hijos. Se consultan con
   `n_candidatos(p)`, `candidatos_de(p)` (devuelve `std::span`) y `n_candidatos_totales()`. Un día
   sin árbitros deja `offsets = {0, 0}` por plaza y listas vacías.
+
+### Carga JSON, orquestación e informes (paso 5g)
+
+- **Parser** (`io/json`): DOM mínimo con objetos, arrays, textos con `\uXXXX`/UTF-8, números,
+  booleanos y `null`. Rechaza claves duplicadas, limita la profundidad y da línea/columna en los
+  errores de sintaxis.
+- **Cargador** (`io/instancia_json`): exige las cinco colecciones, fechas ISO-8601 en hora local,
+  ids únicos, todas las referencias, la disyunción sede de partido/domicilio, una única plaza
+  principal por partido, roles no repetidos y `minuto_fin < 2048`. Los errores de datos son
+  `ErrorInstancia`, nunca `assert`.
+- **Orquestación** (`algorithms/orquestacion`): `resolver_instancia` construye cada jornada, resuelve
+  sin arena los días triviales (sin plazas; sin árbitros y solo secundarias), corta las principales
+  sin candidatos y lanza Dijkstra en el resto. Agrega costes, nodos, tiempos y métricas.
+- **Métricas** (`algorithms/metricas`): reconstruye el recorrido de cada árbitro (primer viaje desde
+  el domicilio, esperas, vuelta a casa), calcula retribución, desplazamientos, minutos de viaje,
+  espera y arbitraje, tiempo total y €/h efectivos.
+- **Informes** (`io/informe`): resumen de terminal (coste, nodos, nodos/s, tiempos, memoria y
+  minutos; sin asignaciones ni tabla de árbitros) y JSON completo opcional con asignaciones y
+  métricas por árbitro.
+- **CLI y script**: `src/main.cpp` solo exige la instancia; `scripts/ejecutar.py` compila si hace
+  falta, ejecuta desde la raíz y guarda por defecto `data/generated/resultado_<input>.json`.
+- **Ejemplos**: `data/instances/` contiene instancias variadas (mínima, pequeña, muchos árbitros,
+  muchas plazas, multi-día, vetos/niveles, nocturna, sin solución y domicilios dispersos). Las
+  grandes pueden agotar `max_nodos`, comportamiento esperado sin heurística.
 
 ## Conceptos pendientes de modelar
 
