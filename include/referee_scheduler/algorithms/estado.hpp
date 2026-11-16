@@ -42,10 +42,23 @@ namespace referee_scheduler::algorithms
     /// orden; la garantía que nos importa es el tamaño, comprobado abajo.
     struct EstadoArbitro
     {
-        /// Sede en la que se encuentra ahora el árbitro (su domicilio al empezar).
+        /// Sede en la que se encuentra ahora el árbitro.
+        ///
+        /// En el estado inicial es su **domicilio**, que por construcción nunca
+        /// es la sede de un partido (`Arbitro::domicilio_id` y
+        /// `Partido::sede_id` son disjuntos). Después de cualquier asignación es
+        /// la sede del último partido, nunca su domicilio. Por tanto
+        /// `sede_id == domicilio` identifica exactamente el estado inicial y la
+        /// función objetivo lo usa para saber que aún no ha salido de casa.
         std::uint32_t sede_id : 10;
 
         /// Minuto del día en que el árbitro queda libre para el siguiente partido. De las 9:00 a las 23:59 hay 900 minutos, así que 11 bits son suficientes.
+        ///
+        /// En el estado inicial vale `ArbitroDia::primer_inicio`, y entonces su
+        /// significado es "primer minuto en que puede **arbitrar**", no la hora
+        /// de salida: puede salir de casa antes para llegar a tiempo. Fuera del
+        /// estado inicial es la hora a la que queda libre en la sede en la que
+        /// está, y el siguiente desplazamiento empieza en ese minuto.
         std::uint32_t minuto_liberacion : 11;
 
         /// Bits sin uso, reservados para una restricción futura por árbitro

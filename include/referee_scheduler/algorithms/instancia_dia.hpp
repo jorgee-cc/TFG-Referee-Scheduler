@@ -35,19 +35,30 @@ namespace referee_scheduler::algorithms
         /// Nivel del árbitro. Una plaza es candidata si `nivel >= nivel_requerido`.
         int nivel = 0;
 
-        /// Id global de su sede-domicilio. La fase 3 lo traduce al índice
+        /// Id global de su domicilio real. La fase 3 lo traduce al índice
         /// compacto de la matriz de distancias.
-        int sede_domicilio_global = 0;
+        int domicilio_global = 0;
 
-        /// Índice compacto de su sede-domicilio en `InstanciaDia::sede_global`.
+        /// Índice compacto de su domicilio en `InstanciaDia::sede_global`.
         ///
         /// Lo rellena la fase 3. Antes de construir la matriz vale 0 y no debe
-        /// usarse: el domicilio global sigue en `sede_domicilio_global`.
-        std::uint16_t sede_domicilio = 0;
+        /// usarse: el domicilio global sigue en `domicilio_global`.
+        ///
+        /// Nunca coincide con la sede de un partido (la fase 3 lo exige con un
+        /// `assert`). Por eso, en el estado de la búsqueda, estar en el índice
+        /// del domicilio significa que el árbitro **todavía no ha salido de
+        /// casa**, y la función objetivo puede tratar la primera salida de forma
+        /// distinta al resto.
+        std::uint16_t domicilio = 0;
 
-        /// Primer minuto del día en que puede empezar (0 si ya estaba disponible
-        /// antes de que empezara la jornada). Se interpreta como "disponible en
-        /// su domicilio desde este minuto".
+        /// Primer minuto del día en que puede **arbitrar** (empezar un partido),
+        /// recortado a `[0, kMinutosPorDia - 1]` (0 si ya estaba disponible antes
+        /// de que empezara la jornada).
+        ///
+        /// No es la hora a la que puede salir de casa: si su disponibilidad
+        /// empieza a las 9:00, a las 9:00 puede empezar un partido aunque tarde
+        /// dos horas en llegar, porque puede salir a las 7:00. El primer
+        /// desplazamiento del día no está limitado por este minuto.
         int primer_inicio = 0;
 
         /// Último minuto del día en que puede **empezar** un partido
@@ -152,7 +163,10 @@ namespace referee_scheduler::algorithms
         /// ascendente.
         std::vector<ArbitroDia> arbitros;
 
-        /// Id global de cada sede compacta (`0..n_sedes-1`), en orden ascendente.
+        /// Id global de cada ubicación compacta (`0..n_sedes-1`), en orden
+        /// ascendente. Incluye tanto sedes de partido como domicilios de
+        /// árbitros: son filas de la misma matriz, aunque los dos conjuntos no
+        /// se solapan.
         std::vector<int> sede_global;
 
         /// Matriz de minutos `n_sedes × n_sedes` en orden row-major.

@@ -178,9 +178,9 @@ Por cada hijo generado, coste_asignar hace:
 - llegada > inicio: casi siempre falso en una instancia normal (el generador solo crea candidatos factibles). Salto predecible.
 - sede_actual == domicilio: solo es verdadero en el primer partido de cada árbitro. En profundidad ≥ 2 es falso siempre → predicción casi perfecta.
   Y el compilador ni siquiera tiene que ramificar el segundo: un ternario se compila a cmov con -O2. Es decir, ya podemos tener la versión "sin salto" sin perder legibilidad:
-  const bool en_casa = (arbitro.sede_id == static_cast<std::uint32_t>(sede_domicilio));
+  const bool en_domicilio = (arbitro.sede_id == static_cast<std::uint32_t>(domicilio));
   const int espera = minuto_inicio_plaza - llegada;
-  const int espera_facturable = en_casa ? 0 : espera; // -> cmov
+  const int espera_facturable = en_domicilio ? 0 : espera; // -> cmov
   El de factibilidad (llegada > inicio) sí debe quedarse como salto: es una restricción dura y hay que devolver nullopt.
   std::optional tampoco añade coste
   std::optional<int64_t> son 16 B que viajan en dos registros (rax/rdx), sin heap. Al ser header-only e inline, se integra en el llamador. Si algún día el compilador no lo inlinea, se separa en bool factible(...) + función que devuelve int64_t, pero eso es prematuro.

@@ -39,6 +39,7 @@ namespace
     using referee_scheduler::algorithms::dia_de;
     using referee_scheduler::algorithms::indice_dia;
     using referee_scheduler::algorithms::kMinutosInalcanzable;
+    using referee_scheduler::algorithms::kMinutosViajeMinimo;
     using referee_scheduler::algorithms::kMinutosPorDia;
     using referee_scheduler::algorithms::minuto_absoluto;
     using referee_scheduler::algorithms::minuto_del_dia;
@@ -103,13 +104,15 @@ namespace
     }
 
     /// Árbitro mínimo con los campos que usa la compactación.
-    Arbitro arbitro(int id, int nivel, int sede, std::time_t inicio,
+    ///
+    /// `domicilio` es el id de una ubicación que ningún partido usa como sede.
+    Arbitro arbitro(int id, int nivel, int domicilio, std::time_t inicio,
                     std::time_t final, std::vector<int> vetos)
     {
         Arbitro a;
         a.id = id;
         a.nivel = nivel;
-        a.sede_id = sede;
+        a.domicilio_id = domicilio;
         a.disponibilidad_inicio = inicio;
         a.disponibilidad_fin = final;
         a.vetos = std::move(vetos);
@@ -333,17 +336,20 @@ int main()
     instancia.partidos[4].equipo_local_id = 106;
     instancia.partidos[4].equipo_visitante_id = 107;
 
-    // Sedes de los partidos: dos el viernes, una el sábado y una el domingo.
+    // Sedes de los partidos: tres el viernes, una el sábado y una el domingo.
     instancia.partidos[0].sede_id = 10;
     instancia.partidos[1].sede_id = 11;
     instancia.partidos[3].sede_id = 12;
     instancia.partidos[2].sede_id = 20;
     instancia.partidos[4].sede_id = 21;
 
+    // Ubicaciones: sedes de partido y domicilios de árbitros. Los domicilios
+    // (13, 30, 31, 32, 33) no son sede de ningún partido: la fase 3 exige que
+    // ambos conjuntos sean disjuntos.
     // Las sedes se meten desordenadas a propósito: la fase 3 debe compactarlas
-    // por id ascendente (10, 11, 12, 13, 20, 21).
-    instancia.sedes = {sede(13), sede(10), sede(21),
-                       sede(11), sede(20), sede(12)};
+    // por id ascendente.
+    instancia.sedes = {sede(13), sede(30), sede(10), sede(31), sede(21),
+                       sede(11), sede(32), sede(20), sede(33), sede(12)};
 
     // Plazas del fin de semana. Se meten desordenadas y con ids que no coinciden
     // con la posición en el vector: así se comprueba que el orden final lo fija
@@ -363,30 +369,31 @@ int main()
 
     // Se meten a propósito desordenados y con ids no consecutivos: el resultado
     // debe salir ordenado por id global y los ids compactos deben ser 0..N-1.
+    // Cada árbitro vive en una ubicación propia que ningún partido usa.
     instancia.arbitros.push_back(arbitro(
-        30, 2, 10, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 23, 0),
+        30, 2, 30, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 23, 0),
         {100, 999, 100}));
     instancia.arbitros.push_back(arbitro(
-        10, 1, 11, instante(2026, 11, 14, 9, 0), instante(2026, 11, 14, 23, 0),
+        10, 1, 31, instante(2026, 11, 14, 9, 0), instante(2026, 11, 14, 23, 0),
         {}));
     // Empieza el jueves: solo puede coger los primeros partidos del viernes.
     instancia.arbitros.push_back(arbitro(
-        50, 3, 12, instante(2026, 11, 12, 18, 0), instante(2026, 11, 13, 1, 0),
+        50, 3, 32, instante(2026, 11, 12, 18, 0), instante(2026, 11, 13, 1, 0),
         {}));
     // De viernes 23:00 a sábado 23:00: entra en los dos días.
     instancia.arbitros.push_back(arbitro(
         20, 2, 13, instante(2026, 11, 13, 23, 0), instante(2026, 11, 14, 23, 0),
         {}));
     instancia.arbitros.push_back(arbitro(
-        40, 1, 10, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 18, 0),
+        40, 1, 33, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 18, 0),
         {}));
     // Ventana invertida: dato inválido, no debe entrar en ningún día.
     instancia.arbitros.push_back(arbitro(
-        60, 1, 10, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 9, 0),
+        60, 1, 30, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 9, 0),
         {}));
     // Solo el miércoles anterior: no toca ninguna jornada del fin de semana.
     instancia.arbitros.push_back(arbitro(
-        70, 1, 10, instante(2026, 11, 11, 9, 0), instante(2026, 11, 11, 20, 0),
+        70, 1, 31, instante(2026, 11, 11, 9, 0), instante(2026, 11, 11, 20, 0),
         {}));
 
     const std::vector<ArbitroDia> viernes = compactar_arbitros(instancia, grupos[0]);
@@ -476,28 +483,38 @@ int main()
 
     // Matriz asimétrica y con la diagonal "mala" a propósito. El camino
     // 0->3->2 (5 + 12) incumple la desigualdad triangular frente a 0->2 (100).
-    ProveedorGuionizado proveedor_viernes({
-        999, 10, 100, 5,
-        12, 999, 10, 6,
-        7, 8, 999, 50,
-        9, 11, 12, 999});
+    // Las dos primeras filas/columnas nuevas son los domicilios 30 y 32; sus
+    // 20 minutos no alteran las celdas que se comprueban.
+    const std::vector<Minutos> matriz_viernes = {
+        //       10   11   12   13   30   32   33
+        /* 10 */ 999,  10, 100,   5,  20,  20,  20,
+        /* 11 */  12, 999,  10,   6,  20,  20,  20,
+        /* 12 */   7,   8, 999,  50,  20,  20,  20,
+        /* 13 */   9,  11,  12, 999,  20,  20,  20,
+        /* 30 */  20,  20,  20,  20, 999,  20,  20,
+        /* 32 */  20,  20,  20,  20,  20, 999,  20,
+        /* 33 */  20,  20,  20,  20,  20,  20, 999};
+
+    ProveedorGuionizado proveedor_viernes(matriz_viernes);
 
     const InstanciaDia dia_viernes = construir_instancia_dia(
         instancia, grupos[0], proveedor_viernes, con_cierre);
 
-    // Sedes del viernes: las de los partidos (10, 11, 12) más el domicilio 13.
-    comprobar(dia_viernes.n_sedes() == 4,
-              "el viernes debe compactar cuatro sedes");
-    comprobar(dia_viernes.sede_global == std::vector<int>{10, 11, 12, 13},
-              "las sedes se compactan por id ascendente");
-    comprobar(proveedor_viernes.recibidas.size() == 4,
-              "el proveedor debe recibir una coordenada por sede");
-    if (proveedor_viernes.recibidas.size() == 4)
+    // Ubicaciones del viernes: las sedes de los partidos (10, 11, 12) más los
+    // domicilios de sus árbitros (13, 30, 32, 33).
+    comprobar(dia_viernes.n_sedes() == 7,
+              "el viernes debe compactar siete ubicaciones");
+    comprobar(dia_viernes.sede_global ==
+                  std::vector<int>{10, 11, 12, 13, 30, 32, 33},
+              "las ubicaciones se compactan por id ascendente");
+    comprobar(proveedor_viernes.recibidas.size() == 7,
+              "el proveedor debe recibir una coordenada por ubicacion");
+    if (proveedor_viernes.recibidas.size() == 7)
     {
         comprobar(proveedor_viernes.recibidas[0].latitud == 10.0,
-                  "la primera coordenada es la sede de menor id");
-        comprobar(proveedor_viernes.recibidas[3].latitud == 13.0,
-                  "la última coordenada es la sede de mayor id");
+                  "la primera coordenada es la ubicacion de menor id");
+        comprobar(proveedor_viernes.recibidas[6].latitud == 33.0,
+                  "la ultima coordenada es el domicilio de mayor id");
         comprobar(proveedor_viernes.recibidas[0].longitud == -10.0,
                   "la longitud se pasa tal cual");
     }
@@ -518,11 +535,7 @@ int main()
               "el cierre metrico debe encontrar el camino 0->3->2");
 
     // Sin cierre, la celda se queda como la dio el proveedor.
-    ProveedorGuionizado proveedor_sin_cierre({
-        999, 10, 100, 5,
-        12, 999, 10, 6,
-        7, 8, 999, 50,
-        9, 11, 12, 999});
+    ProveedorGuionizado proveedor_sin_cierre(matriz_viernes);
     const InstanciaDia dia_sin_cierre = construir_instancia_dia(
         instancia, grupos[0], proveedor_sin_cierre, sin_cierre);
     comprobar(dia_sin_cierre.viaje(0, 2) == 100,
@@ -530,19 +543,19 @@ int main()
     comprobar(dia_sin_cierre.viaje(1, 0) == 12,
               "sin cierre tampoco se espeja la matriz");
 
-    // Domicilios compactados: árbitros [20, 30, 40, 50] viven en las sedes
-    // [13, 10, 10, 12], que son los índices [3, 0, 0, 2].
+    // Domicilios compactados: árbitros [20, 30, 40, 50] viven en las
+    // ubicaciones [13, 30, 33, 32], que son los índices [3, 4, 6, 5].
     comprobar(dia_viernes.n_arbitros() == 4,
               "el viernes conserva sus cuatro árbitros");
     if (dia_viernes.n_arbitros() == 4)
     {
-        comprobar(dia_viernes.arbitros[0].sede_domicilio == 3,
+        comprobar(dia_viernes.arbitros[0].domicilio == 3,
                   "domicilio compacto del árbitro 20");
-        comprobar(dia_viernes.arbitros[1].sede_domicilio == 0,
+        comprobar(dia_viernes.arbitros[1].domicilio == 4,
                   "domicilio compacto del árbitro 30");
-        comprobar(dia_viernes.arbitros[2].sede_domicilio == 0,
+        comprobar(dia_viernes.arbitros[2].domicilio == 6,
                   "domicilio compacto del árbitro 40");
-        comprobar(dia_viernes.arbitros[3].sede_domicilio == 2,
+        comprobar(dia_viernes.arbitros[3].domicilio == 5,
                   "domicilio compacto del árbitro 50");
     }
 
@@ -567,6 +580,33 @@ int main()
                   "sin ruta de ida debe quedar inalcanzable");
         comprobar(dia_aislado.viaje(1, 0) == kMinutosInalcanzable,
                   "sin ruta de vuelta debe quedar inalcanzable");
+    }
+
+    // OSRM devuelve 0 entre dos puntos muy cercanos. Un desplazamiento entre
+    // ubicaciones distintas nunca cuesta menos de `kMinutosViajeMinimo`, pero la
+    // diagonal (una ubicación consigo misma) sigue a 0.
+    {
+        Instancia pegada;
+        pegada.partidos.push_back(partido(
+            0, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 19, 0)));
+        pegada.partidos[0].sede_id = 1;
+        pegada.arbitros.push_back(arbitro(
+            1, 1, 2, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 20, 0),
+            {}));
+        pegada.sedes = {sede(1), sede(2)};
+
+        // El proveedor devuelve 0 en todas las parejas: están en la misma calle.
+        ProveedorGuionizado ceros({0, 0, 0, 0});
+        const std::vector<GrupoDia> grupos_pegados = agrupar_por_dia(pegada);
+        const InstanciaDia dia_pegado = construir_instancia_dia(
+            pegada, grupos_pegados[0], ceros, con_cierre);
+
+        comprobar(dia_pegado.viaje(0, 1) == kMinutosViajeMinimo,
+                  "un desplazamiento entre ubicaciones distintas cuesta al menos 1 minuto");
+        comprobar(dia_pegado.viaje(1, 0) == kMinutosViajeMinimo,
+                  "el minimo se aplica en los dos sentidos");
+        comprobar(dia_pegado.viaje(0, 0) == 0,
+                  "la diagonal sigue siendo cero: no hay desplazamiento");
     }
 
     // Cierre métrico aislado: usa el puente 0->1->2 y no inventa la vuelta.
@@ -654,7 +694,7 @@ int main()
                   "40,00 euros son 4000 centimos");
     }
 
-    // El sábado la sede 20 es la tercera compacta (11, 13, 20): el registro
+    // El sábado la sede 20 es la segunda compacta (13, 20, 31): el registro
     // guarda el índice de la matriz, no el id global.
     {
         ProveedorConstante constante(7);
@@ -675,8 +715,8 @@ int main()
                           "el partido del sabado empieza a las 12:00");
                 comprobar(sabado.minuto_fin == 13 * 60 + 30,
                           "y acaba a las 13:30");
-                comprobar(sabado.sede == 2,
-                          "la sede 20 es la tercera compacta del sabado");
+                comprobar(sabado.sede == 1,
+                          "la sede 20 es la segunda compacta del sabado");
                 comprobar(sabado.rol == Rol::JuezLinea,
                           "la plaza del sabado es de juez de linea");
                 comprobar(!sabado.es_principal(),
@@ -775,11 +815,11 @@ int main()
             comprobar(dias[2].dia == DiaCivil{2026, 11, 15},
                       "la tercera jornada es el domingo");
 
-            // Sedes: viernes 10/11/12 + domicilio 13; sábado 20 + domicilios
-            // 11/13; domingo solo la sede 21 (sin árbitros).
-            comprobar(dias[0].n_sedes() == 4, "sedes del viernes");
-            comprobar(dias[1].n_sedes() == 3, "sedes del sábado");
-            comprobar(dias[2].n_sedes() == 1, "sedes del domingo");
+            // Ubicaciones: viernes 10/11/12 + domicilios 13/30/32/33; sábado 20
+            // + domicilios 13/31; domingo solo la sede 21 (sin árbitros).
+            comprobar(dias[0].n_sedes() == 7, "ubicaciones del viernes");
+            comprobar(dias[1].n_sedes() == 3, "ubicaciones del sábado");
+            comprobar(dias[2].n_sedes() == 1, "ubicaciones del domingo");
             comprobar(dias[2].n_arbitros() == 0,
                       "el domingo no tiene árbitros disponibles");
 

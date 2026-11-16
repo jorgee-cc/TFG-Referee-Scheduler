@@ -1,8 +1,8 @@
 // Pruebas de `algorithms::objetivo.hpp`: conversión de euros a céntimos, primer
-// partido desde el domicilio, espera en ruta, ajuste del viaje de retorno
-// (positivo y negativo), llegada tarde como transición infactible y coste de
-// dejar plazas vacías. Es el ejecutable `referee_scheduler_objetivo_tests` de
-// CTest.
+// desplazamiento desde el domicilio (puede salir antes de su disponibilidad),
+// espera en ruta, ajuste del viaje de retorno (positivo y negativo), llegada
+// tarde como transición infactible y coste de dejar plazas vacías. Es el
+// ejecutable `referee_scheduler_objetivo_tests` de CTest.
 
 #include <cstdint>
 #include <iostream>
@@ -69,13 +69,38 @@ int main() {
     comprobar(a_centimos(8.4) == referee_scheduler::algorithms::kCentimosPorMinuto * 60,
               "la conversion debe ser coherente con k = 14 c/min");
 
-    // --- Primer partido: esperar en casa es gratis -------------------------
-    // Arbitro en su domicilio (7), libre a las 540 (9:00). Viaje de 10 min,
-    // partido a las 610. Llega a las 550 y espera 60 min, pero en casa no
-    // cuentan. Coste = 1 + 10*14 + (12-0)*14 = 309.
+    // --- Primer desplazamiento: puede salir antes de su disponibilidad ------
+    // Arbitro en su domicilio (7), disponible a las 540 (9:00). Viaje de 10 min,
+    // partido a las 610. Sale de casa a las 600 y llega justo: no hay espera.
+    // Coste = 1 + 10*14 + (12-0)*14 = 309.
     comprobar_coste(
         coste_asignar(por_defecto, arbitro_en(7, 540), 7, 610, 10, 12, 0),
-        309, "primer partido: solo se cobra el viaje y el retorno");
+        309, "primer desplazamiento: solo se cobra el viaje y el retorno");
+
+    // El viaje puede empezar antes de la disponibilidad: disponible a las 9:00,
+    // dos horas de viaje y partido a las 9:00. Sale a las 7:00, asi que es
+    // factible y no hay espera. Coste = 1 + 120*14 + (120-0)*14 = 3361.
+    comprobar_coste(
+        coste_asignar(por_defecto, arbitro_en(7, 540), 7, 540, 120, 120, 0),
+        3361, "el primer partido se alcanza aunque el viaje empiece antes de la disponibilidad");
+
+    // Pero no puede arbitrar antes de estar disponible: a las 8:59 no vale.
+    comprobar(
+        !coste_asignar(por_defecto, arbitro_en(7, 540), 7, 539, 10, 0, 0).has_value(),
+        "no puede empezar un partido antes de su disponibilidad");
+
+    // Un partido muy posterior: sale de casa mas tarde, sin espera.
+    // Coste = 1 + 10*14 + (10-0)*14 = 281.
+    comprobar_coste(
+        coste_asignar(por_defecto, arbitro_en(7, 540), 7, 1080, 10, 10, 0),
+        281, "un partido lejano no genera espera: se sale de casa a tiempo");
+
+    // Contraste: si ya esta en una sede (no en su domicilio), el mismo viaje de
+    // 120 min desde las 9:00 llega a las 11:00 y no vale para un partido a las
+    // 10:00. Es la diferencia entre poder salir antes y estar ya en ruta.
+    comprobar(
+        !coste_asignar(por_defecto, arbitro_en(3, 540), 7, 600, 120, 0, 0).has_value(),
+        "desde una sede el viaje empieza al quedar libre y puede llegar tarde");
 
     // --- En ruta: la espera sí es tiempo muerto ----------------------------
     // Sede actual 3 (no es su domicilio), libre a las 600. Viaje 10, inicio

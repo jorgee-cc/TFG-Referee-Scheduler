@@ -11,13 +11,18 @@ estado, frontera de búsqueda, datos estáticos, ensamblado de Dijkstra y valida
 
 - Clases del dominio con campos públicos, sin getters/setters, definidas _header-only_.
 - `std::time_t` para los instantes de `Partido` y para la disponibilidad de `Arbitro`.
-- Referencias entre entidades mediante `id` (`sede_id`, `partido_id`, `plaza_id`, ...).
+- Referencias entre entidades mediante `id` (`sede_id`, `domicilio_id`, `partido_id`, `plaza_id`, ...).
 - **Plazas y roles**: un partido exige cubrir varias `Plaza` (una por rol: principal, asistente,
   anotador, juez de línea). El nivel requerido y la retribución pertenecen a la `Plaza`, no al
   `Partido`, porque dependen del rol.
 - `Asignacion` es el par (`plaza_id`, `arbitro_id`): cubre una plaza concreta, no un partido entero.
 - **Disponibilidad**: cada `Arbitro` declara `disponibilidad_inicio` y `disponibilidad_fin`. No hay
-  un tope de horas trabajadas independiente de esa ventana.
+  un tope de horas trabajadas independiente de esa ventana. El inicio es el primer minuto en que
+  puede **arbitrar** (empezar un partido), no la hora de salida: puede salir de casa antes.
+- **Domicilio**: `Arbitro::domicilio_id` apunta a una `Sede` que es su casa real y que **ningún
+  partido usa como sede**. Las sedes de partido y los domicilios son conjuntos disjuntos (la fase 3
+  lo exige con un `assert`). Una `Sede` es una ubicación: o recinto de partidos o domicilio, nunca
+  las dos cosas; si una casa está en el mismo punto que un recinto, son dos filas distintas.
 - **El estado de búsqueda** vive en `algorithms::Estado` (`include/referee_scheduler/algorithms/estado.hpp`):
   - `EstadoArbitro` ocupa 4 B: `sede_id` (10 bits), `minuto_liberacion` (11 bits) y `reservado`
     (11 bits). 10 + 11 + 11 = 32; `static_assert` fija `sizeof(EstadoArbitro) == 4`.
@@ -26,8 +31,12 @@ estado, frontera de búsqueda, datos estáticos, ensamblado de Dijkstra y valida
   - Es la **mínima estadística suficiente** del pasado: dónde está cada árbitro, cuándo queda libre
     y 11 bits reservados. No guarda historial (equipos ya arbitrados, número de partidos, etc.).
   - `minuto_liberacion` es un minuto absoluto desde el `t0` del día; un día (1440 min) cabe en 11 bits.
-  - La sede no tiene centinela: el estado inicial sitúa a cada árbitro en su domicilio y libre desde
-    `disponibilidad_inicio`.
+  - La sede no tiene centinela: el estado inicial sitúa a cada árbitro en su **domicilio** y libre
+    desde `disponibilidad_inicio`. Como ningún partido se juega en un domicilio, después de
+    cualquier asignación la sede es la de un partido: `sede == domicilio` identifica el estado
+    inicial, y la función objetivo distingue con eso el primer desplazamiento sin guardar historial.
+    Además, en el estado inicial `minuto_liberacion` significa "primer minuto en que puede
+    arbitrar", no "hora de salida".
   - `kMaxArbitros = 600` es **capacidad de compilación**, no el número real. `n_arbitros` es de
     ejecución y solo se usa `[0, n_arbitros)`. Los huecos sin usar son ceros y no deben recorrerse:
     un hueco a cero parece un árbitro válido (sede 0, minuto 0).
@@ -68,20 +77,25 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
 - **Fase 2, compactación de árbitros** (`ArbitroDia`, `compactar_arbitros`): entra quien tiene
   algún minuto de **inicio** válido del día en su ventana, comparada en **minutos absolutos**
   (compararla ya recortada incluiría por error a quien solo estaba disponible el día anterior).
-  `primer_inicio`/`ultimo_inicio` son la ventana recortada a `[0, 1440]`; 1440 = sin límite. El
+  `primer_inicio` es el inicio de la ventana recortado a `[0, 1439]` (lo garantiza el filtro de
+  entrada) y `ultimo_inicio` el fin recortado a `[0, 1440]`, donde 1440 = sin límite. El
   resultado se ordena por `id_global`, así que el id compacto (índice) es determinista y cubre
   `0..N_dia-1`. Los vetos se recortan a los equipos del día, ordenados y sin duplicados.
 - **Semántica de disponibilidad (decidida por el usuario)**: el fin declarado limita la **hora de
   inicio** del partido, no su final. Hasta las 23:00 permite empezar a las 23:00 aunque acabe
-  después de medianoche. El inicio declarado se interpreta como "disponible en su domicilio desde
-  esa hora", así que el primer desplazamiento se cobra desde ahí.
+  después de medianoche. El inicio declarado (`primer_inicio`) es el primer minuto en que puede
+  **arbitrar**, no la hora a la que puede salir de casa: con disponibilidad desde las 9:00 puede
+  cubrir un partido a las 9:00 aunque tarde dos horas, porque sale a las 7:00. El viaje se cobra
+  igual; solo cambia la factibilidad (basta con que el partido no empiece antes de `primer_inicio`).
 - **Fase 3, matriz de distancias (implementada)**:
-  - `algorithms::ProveedorDistancias` (interfaz) con `Coordenada`, `Minutos = uint16_t` y
-    `kMinutosInalcanzable = 65534`.
-  - `construir_matriz_distancias` compacta las sedes del día (sedes de partidos ∪ domicilios de
-    árbitros) a `0..M-1` por id ascendente, exige `M <= 1024` (10 bits del estado), pide la matriz
-    completa, fuerza la diagonal a 0 y aplica el cierre métrico si se pide. También rellena
-    `ArbitroDia::sede_domicilio` con el índice compacto.
+  - `algorithms::ProveedorDistancias` (interfaz) con `Coordenada`, `Minutos = uint16_t`,
+    `kMinutosInalcanzable = 65534` y `kMinutosViajeMinimo = 1`.
+  - `construir_matriz_distancias` compacta las ubicaciones del día (sedes de partidos ∪ domicilios
+    de árbitros) a `0..M-1` por id ascendente, exige `M <= 1024` (10 bits del estado) y exige que
+    ambos conjuntos sean **disjuntos**, pide la matriz completa, fuerza la diagonal a 0, eleva
+    cualquier otro 0 a `kMinutosViajeMinimo` (OSRM devuelve 0 entre puntos muy cercanos y ningún
+    desplazamiento es gratis) y aplica el cierre métrico si se pide. También rellena
+    `ArbitroDia::domicilio` con el índice compacto.
   - La matriz es **completa y asimétrica**: OSRM da tiempos distintos por sentido (verificado), así
     que no se espeja. `ceil(segundos/60)` conserva la desigualdad triangular. `cerrar_metricamente`
     (Floyd-Warshall, sumas en `uint32`, los inalcanzables no hacen de puente) la impone por si la
@@ -90,7 +104,7 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
     decimales, lotes de 100×100 (el límite del servidor es de **dimensiones de tabla**, no de
     coordenadas en la URL: 200 coordenadas con tabla 100×100 funciona), `null` → inalcanzable y
     caché con hash FNV-1a en `data/generated/distancias_<hash>.txt`.
-  - `construir_instancia_dia` (fases 1-3) y `construir_instancias` (una por fecha).
+  - `construir_instancia_dia` (fases 1-4) y `construir_instancias` (una por fecha).
 - **Fase 4, plazas cronológicas (implementada)**: `construir_plazas(instancia, grupo, sede_global)`
   expande los partidos del día en `PlazaDia` ordenadas por `(minuto_inicio, sede compacta, partido_id,
   plaza_id)`; el índice en `InstanciaDia::plazas` **es el nivel del árbol**. `PlazaDia` (48 B,
@@ -102,7 +116,8 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
   exactamente el minuto de liberación del árbitro. Los datos por partido se calculan una vez, no por
   plaza; las plazas de partidos de otra jornada se descartan.
 - **Fase 5 (pendiente)**: listas de candidatos en CSR con filtros de nivel, ventana, veto y
-  alcanzabilidad desde el domicilio.
+  existencia de ruta desde el domicilio (`d != kMinutosInalcanzable`). No se suma el viaje a
+  `primer_inicio`: el primer desplazamiento puede empezar antes de la disponibilidad.
 
 ## Conceptos pendientes de modelar
 

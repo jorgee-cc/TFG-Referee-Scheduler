@@ -43,9 +43,8 @@ si espera_en_casa >= 60:
 ```
 
 No se cobra la hora (ni el resto) que pasa en casa: los únicos minutos que
-cuentan son los de conducción. La espera en casa ya es gratis en la fórmula
-actual, así que basta con evaluar la transición **como si el árbitro estuviera
-en su domicilio**:
+cuentan son los de conducción. La tentación es evaluar la transición **como si
+el árbitro estuviera en su domicilio**:
 
 ```cpp
 // Variante "por casa" de la misma transición:
@@ -58,9 +57,15 @@ coste = coste_asignar(parametros, tras_casa, domicilio,
                       d(sede_plaza, domicilio), /*retorno_anterior=*/0);
 ```
 
-Es decir, **no hace falta un estado nuevo ni un bit de historial**: la misma
-`coste_asignar` sirve, solo cambia la sede y el minuto de liberación con los
-que se llama.
+**Aviso (semántica actual de la disponibilidad)**: esto ya no es correcto tal
+cual. Desde que el primer desplazamiento puede salir antes de `primer_inicio`,
+`sede == domicilio` significa "estado inicial", y `coste_asignar` aplicaría la
+regla del primer viaje a un árbitro que ya ha trabajado: le dejaría salir de
+casa antes de `liberacion` (llegando antes de tiempo) o aceptaría un partido al
+que no llegaría. Para implementar la variante hay que distinguir "en casa sin
+trabajar" de "en casa entre partidos", con un marcador (uno de los bits
+reservados del estado) o evaluando la transición solo si
+`minuto_inicio >= liberacion_casa + d(domicilio, sede_plaza)`.
 
 ### Cómo integrarlo en el generador de transiciones
 

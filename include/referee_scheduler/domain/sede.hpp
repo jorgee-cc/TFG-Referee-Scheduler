@@ -1,5 +1,5 @@
-// Entidad de dominio `Sede`: el lugar donde se disputan partidos y, a la vez,
-// el domicilio de los árbitros.
+// Entidad de dominio `Sede`: una ubicación geolocalizada que puede ser sede de
+// partido o domicilio de un árbitro, nunca las dos cosas a la vez.
 // Guarda nombre y coordenadas WGS84, que son la base para calcular los tiempos
 // de viaje con un servidor de rutas en vez de almacenar una matriz N×N en la
 // instancia. Header-only y sin lógica, con campos públicos como el resto de
@@ -11,7 +11,13 @@
 
 namespace referee_scheduler::domain {
 
-/// Representa una sede en la que se disputan partidos.
+/// Representa una ubicación: sede de partido o domicilio de árbitro.
+///
+/// Las sedes de partido y los domicilios son **conjuntos disjuntos**: un partido
+/// nunca se juega en el domicilio de un árbitro. `Arbitro::domicilio_id` apunta
+/// a una fila de este tipo y la fase 3 comprueba la disyunción. Si hiciera falta
+/// una ubicación en el mismo punto que un recinto, se modela como dos filas
+/// distintas con las mismas coordenadas.
 class Sede {
 public:
     /// Identificador único de la sede.

@@ -10,7 +10,7 @@ int minuto_llegada = estado_arbitro.minuto_liberacion + tiempo_viaje;
 int tiempo_espera = plaza.minuto_inicio - minuto_llegada;
 
 // 2. Penalización por tiempo consumido (k constante)
-if (estado_arbitro.sede_id == arbitro.sede_domicilio) {
+if (estado_arbitro.sede_id == arbitro.domicilio) {
 // Es el primer partido: el tiempo esperando en casa es gratis.
 // Solo se penaliza el tiempo estricto de conducción.
 coste_transicion += tiempo_viaje _ k_centimos;

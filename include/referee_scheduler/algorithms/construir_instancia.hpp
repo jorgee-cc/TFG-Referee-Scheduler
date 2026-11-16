@@ -98,18 +98,23 @@ namespace referee_scheduler::algorithms
         std::vector<Minutos> valores;
     };
 
-    /// Fase 3: compacta las sedes del día y construye la matriz de tiempos.
+    /// Fase 3: compacta las ubicaciones del día y construye la matriz de tiempos.
     ///
-    /// Las sedes implicadas son las de los partidos del día más los domicilios
-    /// de sus árbitros (un árbitro puede vivir en una sede que no albergue
-    /// ningún partido). Se ordenan por id global y se indexan `0..M-1`, igual
-    /// que los árbitros, para que la matriz sea densa y quepa en el `sede_id`
-    /// de 10 bits del estado (se exige `M <= 1024`).
+    /// Las ubicaciones implicadas son las sedes de los partidos del día más los
+    /// domicilios de sus árbitros (un domicilio nunca alberga un partido). Se
+    /// ordenan por id global y se indexan `0..M-1`, igual que los árbitros, para
+    /// que la matriz sea densa y quepa en el `sede_id` de 10 bits del estado
+    /// (se exige `M <= 1024`).
     ///
-    /// Se pide la matriz completa al proveedor, se fuerza la diagonal a 0 y,
-    /// si `opciones.cerrar_metricamente`, se cierra con Floyd-Warshall. También
-    /// rellena `ArbitroDia::sede_domicilio` con el índice compacto del
-    /// domicilio de cada árbitro.
+    /// Se exige que las sedes de partido y los domicilios sean **conjuntos
+    /// disjuntos** (`assert`): es lo que permite que, en el estado, estar en el
+    /// domicilio signifique "todavía no ha salido de casa". Se pide la matriz
+    /// completa al proveedor, se fuerza la diagonal a 0, todo desplazamiento
+    /// entre ubicaciones distintas cuesta al menos `kMinutosViajeMinimo` (OSRM
+    /// devuelve 0 entre puntos muy cercanos) y, si
+    /// `opciones.cerrar_metricamente`, se cierra con Floyd-Warshall. También
+    /// rellena `ArbitroDia::domicilio` con el índice compacto del domicilio de
+    /// cada árbitro.
     ///
     /// @param arbitros Árbitros ya compactados (fase 2); se modifican in situ.
     MatrizDistancias construir_matriz_distancias(

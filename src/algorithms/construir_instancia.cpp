@@ -5,9 +5,10 @@
 //   resultado sea determinista; los partidos de un día quedan contiguos.
 // - Fase 2 (`compactar_arbitros`): selecciona los árbitros que pueden empezar
 //   algún partido del día y les asigna ids `0..N_dia-1`.
-// - Fase 3 (`construir_matriz_distancias`): compacta las sedes implicadas,
-//   pide la matriz de minutos al proveedor, fuerza la diagonal a 0 y aplica el
-//   cierre métrico si se pide.
+// - Fase 3 (`construir_matriz_distancias`): compacta las ubicaciones implicadas,
+//   pide la matriz de minutos al proveedor, fuerza la diagonal a 0, eleva a 1
+//   minuto los desplazamientos entre puntos distintos que OSRM devuelve como 0
+//   y aplica el cierre métrico si se pide.
 // - Fase 4 (`construir_plazas`): expande los partidos del día en plazas con
 //   horario, sede compacta, nivel, retribución en céntimos y equipos, ordenadas
 //   por `(minuto_inicio, sede, partido_id, plaza_id)` para que el índice sea el
@@ -131,7 +132,7 @@ namespace referee_scheduler::algorithms
             ArbitroDia compactado;
             compactado.id_global = arbitro.id;
             compactado.nivel = arbitro.nivel;
-            compactado.sede_domicilio_global = arbitro.sede_id;
+            compactado.domicilio_global = arbitro.domicilio_id;
 
             // Recorte de la ventana al día. `minuto_en_dia` devuelve 0 si
             // empezaba antes y 1440 si acaba después (o justo al terminar el
@@ -179,10 +180,10 @@ namespace referee_scheduler::algorithms
         ProveedorDistancias &proveedor,
         const OpcionesDistancias &opciones)
     {
-        // 1. Sedes implicadas: las de los partidos del día y los domicilios de
-        // sus árbitros. Un domicilio puede no albergar ningún partido, pero sin
-        // su distancia no se puede calcular ni el primer desplazamiento ni el
-        // viaje de vuelta.
+        // 1. Ubicaciones implicadas: las sedes de los partidos del día y los
+        // domicilios de sus árbitros. Un domicilio no alberga ningún partido,
+        // pero sin su distancia no se puede calcular ni el primer
+        // desplazamiento ni el viaje de vuelta.
         std::vector<int> ids_sede;
         ids_sede.reserve(grupo.partidos.size() + arbitros.size());
         for (const std::size_t posicion : grupo.partidos)
@@ -191,7 +192,32 @@ namespace referee_scheduler::algorithms
         }
         for (const ArbitroDia &arbitro : arbitros)
         {
-            ids_sede.push_back(arbitro.sede_domicilio_global);
+            ids_sede.push_back(arbitro.domicilio_global);
+        }
+
+        // Disyunción domicilios / sedes de partido: un domicilio no puede ser
+        // la sede de un partido. Si coincidieran, el estado inicial de ese
+        // árbitro (sede = domicilio) sería indistinguible del de un árbitro que
+        // acaba de arbitrar en esa sede, y la función objetivo no sabría si
+        // puede salir de casa antes de su disponibilidad. Se comprueba contra
+        // todos los partidos de la instancia, no solo los del día, porque es un
+        // contrato del cargador y no una casualidad de esta jornada.
+        {
+            std::vector<int> sedes_partido;
+            sedes_partido.reserve(instancia.partidos.size());
+            for (const domain::Partido &partido : instancia.partidos)
+            {
+                sedes_partido.push_back(partido.sede_id);
+            }
+            std::sort(sedes_partido.begin(), sedes_partido.end());
+
+            for (const ArbitroDia &arbitro : arbitros)
+            {
+                assert(!std::binary_search(sedes_partido.begin(),
+                                           sedes_partido.end(),
+                                           arbitro.domicilio_global) &&
+                       "un domicilio de arbitro coincide con una sede de partido");
+            }
         }
 
         // Orden ascendente y sin duplicados: el índice compacto depende solo de
@@ -200,9 +226,9 @@ namespace referee_scheduler::algorithms
         ids_sede.erase(std::unique(ids_sede.begin(), ids_sede.end()),
                        ids_sede.end());
 
-        // `EstadoArbitro::sede_id` tiene 10 bits: como mucho 1024 sedes.
+        // `EstadoArbitro::sede_id` tiene 10 bits: como mucho 1024 ubicaciones.
         assert(ids_sede.size() <= 1024 &&
-               "demasiadas sedes en un dia para los 10 bits del estado");
+               "demasiadas ubicaciones en un dia para los 10 bits del estado");
 
         // 2. Índice de sedes del dominio por id (una búsqueda lineal por sede
         // sería O(M * S); con el mapa se resuelve en una pasada).
@@ -243,11 +269,29 @@ namespace referee_scheduler::algorithms
         assert(valores.size() == n * n &&
                "el proveedor debe devolver n*n minutos");
 
-        // La distancia de una sede a sí misma es 0 por definición: se impone en
-        // vez de confiar en que el proveedor la traiga bien.
+        // La distancia de una ubicación a sí misma es 0 por definición: se
+        // impone en vez de confiar en que el proveedor la traiga bien.
+        //
+        // Cualquier otro desplazamiento cuesta al menos `kMinutosViajeMinimo`:
+        // OSRM devuelve 0 minutos entre dos puntos muy cercanos (un domicilio y
+        // la sede del partido en la misma calle) y un desplazamiento nunca es
+        // gratis. Elevar los ceros no rompe la desigualdad triangular: un
+        // camino entre dos ubicaciones distintas tiene al menos dos aristas, y
+        // cada una valdrá también 1 minuto o más.
         for (std::size_t i = 0; i < n; ++i)
         {
-            valores[i * n + i] = 0;
+            for (std::size_t j = 0; j < n; ++j)
+            {
+                Minutos &celda = valores[i * n + j];
+                if (i == j)
+                {
+                    celda = 0;
+                }
+                else if (celda == 0)
+                {
+                    celda = kMinutosViajeMinimo;
+                }
+            }
         }
 
         if (opciones.cerrar_metricamente)
@@ -258,8 +302,7 @@ namespace referee_scheduler::algorithms
         // 4. El domicilio de cada árbitro pasa a ser un índice de la matriz.
         for (ArbitroDia &arbitro : arbitros)
         {
-            arbitro.sede_domicilio = indice_compacto.at(
-                arbitro.sede_domicilio_global);
+            arbitro.domicilio = indice_compacto.at(arbitro.domicilio_global);
         }
 
         return MatrizDistancias{std::move(ids_sede), std::move(valores)};
