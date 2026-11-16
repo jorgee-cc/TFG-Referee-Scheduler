@@ -7,7 +7,9 @@ idea, su verificación técnica frente al código real y el plan de aplicación.
 > algoritmo esté funcionando** (paso 6 del roadmap, ensamblado de Dijkstra/A\*), porque sin una
 > carga real que medir no se puede afirmar qué mejora aporta cada una. La prioridad es tener el
 > planificador correcto primero; la arena ya implementada (`algorithms::Arena`, bloques de 64 KiB,
-> división entera y `std::make_unique`) es funcional y suficiente para esa primera versión.
+> división entera y `std::make_unique`) es funcional y suficiente para esa primera versión. El
+> Dijkstra mínimo ya funciona y la sección [Frontera](#frontera-y-tabla-de-estados) recoge la
+> primera sonda sintética; falta convertirla en un benchmark del repositorio.
 
 ## Arena
 
@@ -190,3 +192,67 @@ Por cada hijo generado, coste_asignar hace:
 1. Ahora: fórmula clara y correcta.
 2. Las listas de candidatos por plaza (fase 5) ya descartan nivel, ventana, vetos y falta de ruta de ida y vuelta; la llegada tarde sigue siendo dinámica y la comprueba el generador de hijos (`transiciones.hpp`).
 3. Con Dijkstra funcionando: perf stat/perf record y decidir si de verdad importa.
+
+## Frontera y tabla de estados
+
+Referencias: [`ListaAbierta`](../include/referee_scheduler/algorithms/abierta.hpp),
+[`TablaEstados`](../include/referee_scheduler/algorithms/tabla_estados.hpp) y
+[`buscar_dijkstra`](../src/algorithms/busqueda.cpp).
+
+Ninguna de estas ideas está implementada; el diseño actual (cubos de 1 céntimo, tabla abierta con
+sondeo lineal, deduplicación al generar y `kFlagSuperado`) es la versión funcional.
+
+### Punto de partida medido (sonda sintética, fuera del repositorio)
+
+Un día de **18 plazas, 20 árbitros y 26 sedes** con distancias aleatorias de 5–30 min y ventanas de
+9:00 a 23:00, con `max_nodos = 300 000`:
+
+| métrica | valor |
+|---|---|
+| causa de parada | `PresupuestoAgotado` |
+| nodos creados | 300 016 |
+| nodos expandidos | 17 929 |
+| estados distintos | 196 063 |
+| hijos descartados | 98 628 |
+| entradas obsoletas extraídas | 129 |
+| máximo de la lista abierta | 183 330 |
+| memoria de arena / abierta / tabla | 33,5 / 1,3 / 8,4 MB |
+| tiempo | 199 ms |
+
+Dice tres cosas: (a) el presupuesto se agota enseguida, así que **lo que falta es heurística**, no
+micro-optimización; (b) la tabla deduplica de verdad (196 063 estados frente a 300 016 nodos, y el
+129 confirma que el camino de «nodo superado» se usa); (c) la lista abierta ocupa dos órdenes de
+magnitud menos que la arena, así que su estructura no es el problema hoy.
+
+### Ideas, por orden de impacto esperado
+
+1. **Poda dentro del generador**, no después de crear el nodo: hoy cada hijo se crea en la arena
+   (24 + 4·n bytes) y solo luego se consulta la tabla o la cota del incumbente. Un predicado
+   `aceptar(nivel, coste, span estado)` invocado antes de `arena.crear` evitaría el `memcpy` y el
+   consumo de arena de los hijos descartados (el 33 % del total en la sonda). Requiere un estado de
+   trabajo reutilizable o parchear y deshacer en el estado del padre.
+2. **Huella más barata o digerida una sola vez**: hoy se recorre el estado entero (4·n bytes, FNV-1a
+   por palabra) en cada `mejorar`. Alternativas: `memcpy` a registros y mezcla vectorizable, o
+   calcular la huella al crear el nodo y guardarla en el hueco libre de la cabecera (no hay hueco:
+   24 B exactos; habría que quitar `flags` o `decision`).
+3. **Cubos de dos niveles** (supercubo de 64 claves → 64 vectores creados bajo demanda) para no
+   pagar 24 B por cada céntimo vacío entre el mínimo y el máximo de la frontera. Solo compensa si
+   el rango de claves crece mucho por plazas secundarias vacías; hoy `anchura_cubo` lo cubre.
+4. **Reutilizar la capacidad de los cubos consumidos** con una lista de vectores libres, en lugar de
+   `clear()` conservando el `capacity()` de cada uno. Ahorra memoria a costa de un `push/pop` extra
+   por cubo.
+5. **Clusterizar `cubos_` por localidad**: reservar los cubos por regiones de 4 KiB para que el
+   barrido del cursor no salte entre `malloc`s. Solo tras medir con `perf`.
+6. **Índice de la tabla de 8 B** si el día es pequeño: `{huella32, nodo}` en 8 B reduciría a la
+   mitad una tabla que ocupa 8,4 MB en la sonda, a cambio de más comparaciones exactas.
+7. **Reservar la tabla** con una estimación inicial (`reservar`) para evitar los `rehash` de los
+   primeros miles de estados.
+
+### Ideas descartadas por ahora
+
+- **Heap con `decrease-key`**: los cubos ya dan O(1) y la cota de claves es pequeña; no hay nada que
+  ganar.
+- **Borrado arbitrario en la lista abierta** (el `remove(idx)` de ksearch): Dijkstra no lo necesita;
+  el bit `kFlagSuperado` resuelve el caso real.
+- **Anillo de Dial** (`max_arco + 1` cubos circulares): ahorra memoria pero exige conocer la arista
+  máxima y rompe si una transición la supera; el vector con base móvil es más simple y suficiente.

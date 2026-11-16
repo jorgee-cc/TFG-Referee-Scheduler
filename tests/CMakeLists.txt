@@ -68,6 +68,45 @@ target_link_libraries(referee_scheduler_transiciones_tests
 
 add_test(NAME referee_scheduler_transiciones COMMAND referee_scheduler_transiciones_tests)
 
+# La lista abierta (cubos por céntimo): orden de extracción, empates LIFO, base
+# que solo avanza y prueba de propiedad contra una priority_queue.
+add_executable(referee_scheduler_abierta_tests
+    test_abierta.cpp
+)
+
+target_link_libraries(referee_scheduler_abierta_tests
+    PRIVATE
+        referee_scheduler_algorithms
+)
+
+add_test(NAME referee_scheduler_abierta COMMAND referee_scheduler_abierta_tests)
+
+# La tabla de estados (lista cerrada): alta, comparación exacta por nivel y
+# estado, reemplazo solo con coste menor y marcado del nodo superado.
+add_executable(referee_scheduler_tabla_estados_tests
+    test_tabla_estados.cpp
+)
+
+target_link_libraries(referee_scheduler_tabla_estados_tests
+    PRIVATE
+        referee_scheduler_algorithms
+)
+
+add_test(NAME referee_scheduler_tabla_estados COMMAND referee_scheduler_tabla_estados_tests)
+
+# El motor de Dijkstra de punta a punta: costes exactos, causa de parada,
+# presupuesto y validación contra un recorrido exhaustivo.
+add_executable(referee_scheduler_busqueda_tests
+    test_busqueda.cpp
+)
+
+target_link_libraries(referee_scheduler_busqueda_tests
+    PRIVATE
+        referee_scheduler_algorithms
+)
+
+add_test(NAME referee_scheduler_busqueda COMMAND referee_scheduler_busqueda_tests)
+
 # El cliente OSRM se prueba sin red (conversión, parseo del JSON y URL). Solo
 # se registra si libcurl estaba disponible al configurar CMake.
 if(TARGET referee_scheduler_io)

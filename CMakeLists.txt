@@ -30,6 +30,7 @@ target_include_directories(referee_scheduler_domain
 # el target deja de ser INTERFACE. Las cabeceras siguen viviendo en include/ y
 # se propagan a quien enlace el target.
 add_library(referee_scheduler_algorithms STATIC
+    src/algorithms/busqueda.cpp
     src/algorithms/construir_instancia.cpp
     src/algorithms/instancia_dia.cpp
     src/algorithms/tiempo.cpp

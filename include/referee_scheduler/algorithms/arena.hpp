@@ -64,10 +64,18 @@ namespace referee_scheduler::algorithms
 
     /// Bits de `CabeceraNodo::flags` reservados para la frontera del paso 4.
     ///
-    /// El generador de hijos los deja a cero; la frontera decidirá cuándo marcar
-    /// un nodo como abierto o cerrado.
+    /// El generador de hijos los deja a cero; la frontera es quien los marca.
     inline constexpr std::uint32_t kFlagAbierto = 1u << 0;
     inline constexpr std::uint32_t kFlagCerrado = 1u << 1;
+
+    /// El nodo **ya no es el representante canónico de su estado**.
+    ///
+    /// `TablaEstados` lo marca cuando otro nodo, con el mismo estado físico en el
+    /// mismo nivel y menor `coste_g`, ocupa su entrada. El nodo sigue en la arena
+    /// (los índices son permanentes) y puede seguir dentro de la lista abierta:
+    /// al extraerlo, la búsqueda lo descarta sin expandirlo. Es un solo bit, así
+    /// que el descarte no cuesta ni un hash ni un acceso a memoria externa.
+    inline constexpr std::uint32_t kFlagSuperado = 1u << 2;
 
     /// Cabecera de decisión que la arena guarda delante del estado de cada nodo.
     ///

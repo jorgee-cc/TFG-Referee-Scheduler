@@ -5,7 +5,10 @@ Notas de trabajo y decisiones aplazadas para el TFG (Referee Scheduler / Referee
 ## Roadmap
 
 El orden de trabajo operativo vive en `AGENTS.md`: arena, función objetivo, transiciones del
-estado, frontera de búsqueda, datos estáticos, ensamblado de Dijkstra y validación final.
+estado, frontera de búsqueda, datos estáticos, ensamblado de Dijkstra y validación final. Arena,
+objetivo, transiciones y frontera (con un Dijkstra mínimo) están implementados; el siguiente paso
+es un incumbente glotón y una heurística admisible para A\*, porque sin ella un día mediano agota
+el presupuesto de nodos.
 
 ## Decisiones de diseño actuales
 
@@ -51,8 +54,10 @@ estado, frontera de búsqueda, datos estáticos, ensamblado de Dijkstra y valida
     entran en la fórmula del bloque. `kSinNodo` = "sin padre". `decision` guarda `0..N-1` (árbitro
     compacto asignado), `kDecisionVacia` o `kSinDecision` (raíz); así la solución se reconstruye
     leyendo la cadena de padres, sin comparar estados.
-  - `flags` queda reservado para la frontera (bits `kFlagAbierto`/`kFlagCerrado`); el generador de
-    hijos lo deja a cero.
+  - `flags` es el campo de la frontera: `kFlagAbierto`, `kFlagCerrado` y `kFlagSuperado` (`1u << 2`).
+    El generador de hijos lo deja a cero; `buscar_dijkstra` marca `kFlagCerrado` al expandir y
+    `TablaEstados` marca `kFlagSuperado` en el nodo que deja de representar su estado, de modo que
+    descartar una entrada obsoleta de la lista abierta es un solo bit.
   - Recibe `n_arbitros` en el constructor (no depende del cargador ni de `Instancia`).
   - `estado(nodo)` devuelve un `std::span` de longitud `n_arbitros`: no se puede iterar el relleno.
     `crear(Estado, ...)` copia solo `[0, n_arbitros)` e ignora la cola.
@@ -94,6 +99,65 @@ el árbol de búsqueda. La escritura por asignación es de 4 B: `sede_id = plaza
 - Tests: `tests/test_transiciones.cpp` cubre estado inicial, raíz, primer viaje desde casa, plaza
   vacía, principal sin candidatos, llegada tarde, factibilidad estática, centinela de vuelta,
   equivalencia callback/vector y reconstrucción exacta (982 céntimos en el caso de dos partidos).
+
+## Frontera y búsqueda (paso 4 implementado)
+
+El diseño está tomado de `bucket_t`/`closed_t` de [ksearch](https://github.com/clinaresl/ksearch)
+(lista abierta en cubos por clave entera y lista cerrada consultada al generar), adaptado a nuestro
+modelo de coste.
+
+- **Lista abierta** (`algorithms/abierta.hpp`, `ListaAbierta`): `vector<vector<uint32_t>>` de cubos
+  indexados por `clave − base`. Las claves son **céntimos `int64`** (no `int`) y lo que viaja es el
+  índice de nodo de 4 B; la clave se lee de `CabeceraNodo::coste_g`. `base` se fija con la primera
+  inserción y se alinea a la anchura; `primero_` es un cursor que solo avanza, así que insertar y
+  extraer el mínimo son O(1) amortizado sin comparadores. Dentro de un cubo el orden es LIFO
+  (`push_back`/`pop_back`). Los cubos no encogen y conservan su capacidad. No copiable, movible.
+- **Precondición de inserción**: no es "claves no decrecientes" sino **"ninguna clave cae en un cubo
+  ya consumido"**. Tras extraer, el cursor salta cubos vacíos y devuelve una cota *mayor* que la
+  clave del padre, así que el `assert` compara con `cota_actual()` (la base del cubo del cursor), no
+  con `clave_min()`. Dijkstra lo garantiza: un hijo cuesta al menos lo que su padre y el padre salió
+  de ese cubo.
+- **Anchura de cubo** (`anchura_cubo`, por defecto 1 céntimo = orden exacto): con `anchura > 1`
+  `clave_min()` es la cota inferior del cubo, la extracción deja de ser exacta y la regla de parada
+  tiene que vaciar el cubo actual. Nunca se pierde optimalidad, solo se exploran más nodos; es la
+  válvula de escape si el rango de claves se dispara (cada secundaria vacía suma su retribución).
+- **Lista cerrada** (`algorithms/tabla_estados.hpp`, `TablaEstados`): tabla de direccionamiento
+  abierto (sondeo lineal, capacidad potencia de dos, carga 0,5) de entradas de **16 B**
+  `{huella, nodo}`. Guarda el índice del nodo, no una copia del estado (ksearch copiaba el nodo
+  entero, dos veces). Clave = **(nivel, estado)**: el nivel es imprescindible porque dos plazas
+  vacías dejan el mismo estado físico en niveles distintos y esos nodos no son comparables.
+  `huella_estado` es FNV-1a sobre palabras de 32 bits más el nivel, con mezcla final splitmix64; la
+  huella solo elige el cubo y la igualdad se decide siempre con `nivel` + `memcmp` de `4·n` bytes,
+  de modo que **una colisión no puede podar una solución válida**. El rehash usa solo la huella
+  guardada (no lee la arena).
+- **Reemplazo**: `mejorar(arena, nodo)` sustituye al representante solo si `coste_g` es
+  **estrictamente menor** y marca el nodo viejo con `kFlagSuperado`; si empata o empeora devuelve
+  `false` y el primero llegado conserva el estado (búsqueda reproducible).
+- **Deduplicación al generar**: se consulta la tabla en el consumidor que se pasa a `generar_hijos`.
+  El hijo rechazado no entra en la lista abierta y su subárbol no se explora nunca; el nodo sí se
+  crea en la arena (el generador no consulta la tabla), que es lo barato frente al subárbol podado.
+  Importa porque en este problema los duplicados son la norma: con un objetivo que solo cobra
+  tiempo, asignar a un árbitro el principal o el asistente del mismo partido deja el mismo estado y
+  el mismo coste.
+- **Motor** (`algorithms/busqueda.hpp` + `src/algorithms/busqueda.cpp`, `buscar_dijkstra`): raíz,
+  presupuesto de nodos, regla de parada `clave_min() >= incumbente`, descarte O(1) de
+  `kFlagSuperado`, `kFlagCerrado` al expandir, cota `g >= incumbente` y consulta a la tabla.
+  Devuelve `ResultadoBusqueda` con `CausaParada` (`Optima` / `SinSolucion` / `PresupuestoAgotado`),
+  `SolucionDia` reconstruida, nodo meta y métricas (creados, expandidos, descartados, obsoletos,
+  estados distintos, máximo de la abierta, memoria de arena/abierta/tabla y milisegundos).
+- **Sin reaperturas**: extracción no decreciente y reemplazo solo si el coste es estrictamente menor
+  implican que un estado ya extraído conserva su coste; `kFlagCerrado` se comprueba con `assert` en
+  depuración (con `anchura == 1`; un cubo más ancho sí puede reabrir y el bucle lo soporta).
+- `OpcionesBusqueda { max_nodos = 1'000'000, anchura_cubo = 1 }`: el presupuesto es una red de
+  seguridad, no un parámetro; al agotarlo, la solución (si existe) **no está demostrada óptima**.
+- Un día con `n_plazas == 0` se resuelve solo (la raíz ya es meta, coste 0); una principal sin
+  candidatos termina en `SinSolucion`; un día sin árbitros nunca llega aquí (`Arena` exige
+  `n_arbitros > 0`).
+- Tests: `test_abierta.cpp` (orden, empates LIFO, base lejos del cero, anchura > 1, movimiento y
+  prueba de propiedad contra `std::priority_queue`), `test_tabla_estados.cpp` (alta, niveles
+  distintos, reemplazo solo con coste menor, marcado del superado, rehash con colisiones, reserva) y
+  `test_busqueda.cpp` (982 céntimos, secundaria vacía, principal sin candidatos, presupuesto, día
+  sin plazas y duplicados contra un recorrido exhaustivo, también con cubos anchos).
 
 ## Datos estáticos (fases 1-5 implementadas)
 
@@ -192,6 +256,15 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
 - Arena por bloques para los estados, con punteros estables. _Adoptado en `algorithms::Arena`._
 - Copiar solo `4 · N_dia` bytes del estado cuando se compacta por día. _Adoptado._
 - Generar hijos con callback para que una frontera futura inserte directamente, sin vector
-  intermedio; la variante con `std::vector` se mantiene por comodidad y para tests. _Adoptado._
+  intermedio; la variante con `std::vector` se mantiene por comodidad y para tests. _Adoptado en
+  `buscar_dijkstra`._
 - Structs/trivialmente copiables para permitir `memcpy` y mejorar localidad de caché. _Adoptado en
   `algorithms::Estado`._
+- Lista abierta en cubos por céntimo (`ListaAbierta`) en vez de un heap: claves enteras no
+  decrecientes ⇒ inserción y extracción O(1) sin comparadores. _Adoptado._
+- Lista cerrada como tabla hash de direccionamiento abierto con entradas de 16 B y comparación
+  exacta del estado (nunca por huella). _Adoptado en `TablaEstados`._
+- Deduplicar al generar el hijo (y no al extraerlo) para no ramificar subárboles enteros.
+  _Adoptado._
+- Marcar el nodo superado con un bit de `flags` en vez de buscar en la lista cerrada al extraer.
+  _Adoptado (`kFlagSuperado`)._
