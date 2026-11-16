@@ -104,7 +104,7 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
     decimales, lotes de 100×100 (el límite del servidor es de **dimensiones de tabla**, no de
     coordenadas en la URL: 200 coordenadas con tabla 100×100 funciona), `null` → inalcanzable y
     caché con hash FNV-1a en `data/generated/distancias_<hash>.txt`.
-  - `construir_instancia_dia` (fases 1-4) y `construir_instancias` (una por fecha).
+  - `construir_instancia_dia` (fases 1-5) y `construir_instancias` (una por fecha).
 - **Fase 4, plazas cronológicas (implementada)**: `construir_plazas(instancia, grupo, sede_global)`
   expande los partidos del día en `PlazaDia` ordenadas por `(minuto_inicio, sede compacta, partido_id,
   plaza_id)`; el índice en `InstanciaDia::plazas` **es el nivel del árbol**. `PlazaDia` (48 B,
@@ -115,9 +115,20 @@ La carga de la instancia se divide en cinco fases que preparan la búsqueda. De 
   partido** en minutos absolutos del día (23:30→01:00 vale 1500, no se recorta a 1440) y es
   exactamente el minuto de liberación del árbitro. Los datos por partido se calculan una vez, no por
   plaza; las plazas de partidos de otra jornada se descartan.
-- **Fase 5 (pendiente)**: listas de candidatos en CSR con filtros de nivel, ventana, veto y
-  existencia de ruta desde el domicilio (`d != kMinutosInalcanzable`). No se suma el viaje a
-  `primer_inicio`: el primer desplazamiento puede empezar antes de la disponibilidad.
+- **Fase 5, listas de candidatos (implementada)**: `construir_candidatos(dia)` devuelve un CSR
+  plano (`ListasCandidatos{offsets, candidatos}`) que `construir_instancia_dia` copia en
+  `InstanciaDia::offset_candidatos` (`n_plazas + 1` fronteras) y `InstanciaDia::candidatos`. Una
+  sola pasada plaza × árbitro con cuatro filtros estáticos: nivel (`nivel >= nivel_requerido`),
+  ventana (`primer_inicio <= minuto_inicio <= ultimo_inicio`), vetos (ni el local ni el visitante en
+  `equipos_vetados`, búsqueda binaria) y **existencia de ruta** desde el domicilio
+  (`d(domicilio, sede) != kMinutosInalcanzable`). No se suma el viaje a `primer_inicio`: el primer
+  desplazamiento puede empezar antes de la disponibilidad, y esta es exactamente la condición de
+  factibilidad que aplica `coste_asignar` en el régimen "en el domicilio". Los candidatos son ids
+  **compactos** (`0..n_arbitros-1`), salen en orden ascendente dentro de cada plaza (desempate
+  determinista) y la lista es condición **necesaria**, no suficiente: la factibilidad dinámica
+  (llegar tarde desde donde esté en el nodo) la decide el generador de hijos. Se consultan con
+  `n_candidatos(p)`, `candidatos_de(p)` (devuelve `std::span`) y `n_candidatos_totales()`. Un día
+  sin árbitros deja `offsets = {0, 0}` por plaza y listas vacías.
 
 ## Conceptos pendientes de modelar
 

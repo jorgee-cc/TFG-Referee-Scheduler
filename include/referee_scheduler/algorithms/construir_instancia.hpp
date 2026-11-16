@@ -1,12 +1,14 @@
 // Construcción de los datos estáticos por día: este archivo declara las fases
-// 1-4 (partición por fecha, compactación de árbitros, matriz de distancias y
-// expansión de plazas). La búsqueda es por jornada y en paralelo entre días, así
-// que cada grupo de la fase 1 es la entrada de las fases siguientes.
+// 1-5 (partición por fecha, compactación de árbitros, matriz de distancias,
+// expansión de plazas y listas de candidatos). La búsqueda es por jornada y en
+// paralelo entre días, así que cada grupo de la fase 1 es la entrada de las
+// fases siguientes.
 // La implementación está en `src/algorithms/construir_instancia.cpp`.
 
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "referee_scheduler/algorithms/instancia_dia.hpp"
@@ -160,17 +162,67 @@ namespace referee_scheduler::algorithms
                                            const GrupoDia &grupo,
                                            const std::vector<int> &sede_global);
 
-    /// Construye la instancia de un día aplicando las fases 1-4.
+    /// Resultado de la fase 5: los candidatos de todas las plazas en un único
+    /// bloque CSR, sin un vector por plaza.
     ///
-    /// Las listas de candidatos (fase 5) se añadirán a esta misma función cuando
-    /// existan.
+    /// Un `vector<vector<...>>` tendría una cabecera de 24 B y una reserva
+    /// separada por plaza; el CSR ocupa 4 B por candidato y se recorre en orden
+    /// de memoria. Para la búsqueda basta con `offsets` + `candidatos`, que es lo
+    /// que acaba copiado en `InstanciaDia`.
+    struct ListasCandidatos
+    {
+        /// `n_plazas + 1` fronteras; la última es `candidatos.size()`.
+        std::vector<std::uint32_t> offsets;
+
+        /// Ids compactos de árbitro, plaza a plaza y en orden ascendente dentro
+        /// de cada plaza.
+        std::vector<std::uint32_t> candidatos;
+    };
+
+    /// Fase 5: construye las listas de candidatos de cada plaza.
+    ///
+    /// Recorre las plazas en su orden cronológico (el índice es el nivel del
+    /// árbol) y para cada una filtra los árbitros del día con cuatro pruebas
+    /// estáticas, todas conocidas antes de buscar:
+    ///
+    /// 1. **Nivel**: `ArbitroDia::nivel >= PlazaDia::nivel_requerido`.
+    /// 2. **Ventana**: `primer_inicio <= minuto_inicio <= ultimo_inicio`. Se
+    ///    compara con el **inicio** del partido, que es lo único que limitan la
+    ///    disponibilidad declarada (`ultimo_inicio == kMinutosPorDia` significa
+    ///    "sin límite" y siempre deja pasar). No se suma el viaje desde el
+    ///    domicilio a `primer_inicio`: el primer desplazamiento del día puede
+    ///    empezar antes de la disponibilidad (se sale de casa a
+    ///    `inicio - viaje`), así que lo único exigible es que el partido no
+    ///    empiece antes de `primer_inicio`. Es la misma condición que aplica
+    ///    `coste_asignar` en el régimen "en el domicilio".
+    /// 3. **Vetos**: el árbitro no puede tener vetado a ninguno de los dos
+    ///    equipos del partido (`equipos_vetados` está ordenado y recortado a los
+    ///    equipos del día, así que la prueba es una búsqueda binaria).
+    /// 4. **Ruta**: `d(domicilio, sede) != kMinutosInalcanzable`. No hace falta
+    ///    que el viaje quepa en ningún hueco; solo que exista camino, porque sin
+    ///    él no hay forma de cubrir la plaza ni siquiera como primer partido.
+    ///
+    /// Que el árbitro llegue a tiempo desde donde esté en un nodo concreto
+    /// depende del estado (sede actual y minuto de liberación) y **no** se puede
+    /// decidir aquí: eso lo comprueba el generador de hijos con `coste_asignar`.
+    ///
+    /// El resultado incluye a los candidatos en orden ascendente de id compacto
+    /// (se recorre `InstanciaDia::arbitros` en orden), de modo que el desempate
+    /// es determinista. Una plaza sin candidatos deja los dos índices del CSR
+    /// iguales; no es un error: el generador solo podrá dejarla vacía (prohibido
+    /// si es principal, pagando su retribución si no lo es).
+    ///
+    /// @param dia Instancia con las fases 1-4 ya construidas.
+    ListasCandidatos construir_candidatos(const InstanciaDia &dia);
+
+    /// Construye la instancia de un día aplicando las fases 1-5.
     InstanciaDia construir_instancia_dia(
         const domain::Instancia &instancia,
         const GrupoDia &grupo,
         ProveedorDistancias &proveedor,
         const OpcionesDistancias &opciones = {});
 
-    /// Construye una `InstanciaDia` por cada fecha (fases 1-4).
+    /// Construye una `InstanciaDia` por cada fecha (fases 1-5).
     ///
     /// Ordenadas de la jornada más antigua a la más reciente. Cada una es
     /// independiente, así que se pueden resolver en paralelo.

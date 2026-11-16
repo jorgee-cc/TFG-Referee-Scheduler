@@ -1,10 +1,10 @@
 // Pruebas de la construcción de los datos estáticos, una por fase.
-// Cubre de momento la fase 1 (partición por fecha civil), la fase 2
-// (compactación de árbitros), la fase 3 (matriz de distancias), la fase 4
-// (expansión de plazas ordenadas) y las utilidades de `tiempo.hpp` que usan:
-// fecha civil local, minuto del día, índice de día y recorte de
-// disponibilidades. Es el ejecutable `referee_scheduler_instancia_tests` de
-// CTest.
+// Cubre la fase 1 (partición por fecha civil), la fase 2 (compactación de
+// árbitros), la fase 3 (matriz de distancias), la fase 4 (expansión de plazas
+// ordenadas), la fase 5 (listas de candidatos en CSR) y las utilidades de
+// `tiempo.hpp` que usan: fecha civil local, minuto del día, índice de día y
+// recorte de disponibilidades. Es el ejecutable
+// `referee_scheduler_instancia_tests` de CTest.
 
 #include <cstddef>
 #include <cstdint>
@@ -26,6 +26,7 @@ namespace
     using referee_scheduler::algorithms::DiaCivil;
     using referee_scheduler::algorithms::GrupoDia;
     using referee_scheduler::algorithms::InstanciaDia;
+    using referee_scheduler::algorithms::ListasCandidatos;
     using referee_scheduler::algorithms::Minutos;
     using referee_scheduler::algorithms::OpcionesDistancias;
     using referee_scheduler::algorithms::PlazaDia;
@@ -33,6 +34,7 @@ namespace
     using referee_scheduler::algorithms::agrupar_por_dia;
     using referee_scheduler::algorithms::cerrar_metricamente;
     using referee_scheduler::algorithms::compactar_arbitros;
+    using referee_scheduler::algorithms::construir_candidatos;
     using referee_scheduler::algorithms::construir_instancia_dia;
     using referee_scheduler::algorithms::construir_instancias;
     using referee_scheduler::algorithms::construir_plazas;
@@ -180,6 +182,29 @@ namespace
     bool contiene(const GrupoDia &grupo, const std::vector<std::size_t> &esperados)
     {
         return grupo.partidos == esperados;
+    }
+
+    /// Comprueba que los candidatos de `plaza` son exactamente `esperados`, en
+    /// ese orden.
+    ///
+    /// Se compara contra el `std::span` que devuelve la instancia (no contra el
+    /// CSR crudo) para probar también el accesor: tamaño y contenido.
+    bool mismos_candidatos(const InstanciaDia &dia, std::size_t plaza,
+                           const std::vector<std::uint32_t> &esperados)
+    {
+        const std::span<const std::uint32_t> lista = dia.candidatos_de(plaza);
+        if (lista.size() != esperados.size())
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < esperados.size(); ++i)
+        {
+            if (lista[i] != esperados[i])
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
 } // namespace
@@ -799,7 +824,230 @@ int main()
                   "un grupo sin partidos no genera plazas");
     }
 
-    // Pipeline completo de las fases 1-4 para las tres jornadas.
+    // ---------------------------------------------------------------------
+    // Fase 5: listas de candidatos en CSR
+    // ---------------------------------------------------------------------
+
+    // `dia_viernes` ya trae las fases 1-4: árbitros [20, 30, 40, 50] (ids
+    // compactos 0..3) y plazas 500/501 (18:00), 502 (20:00) y 503 (23:30).
+    //
+    // Ventanas y vetos de los árbitros del viernes:
+    //   - 20 (compacto 0): nivel 2, 23:00-24:00, sin vetos.
+    //   - 30 (compacto 1): nivel 2,  9:00-23:00, vetado el equipo 100.
+    //   - 40 (compacto 2): nivel 1,  9:00-18:00, sin vetos.
+    //   - 50 (compacto 3): nivel 3,  0:00-01:00, sin vetos.
+    //
+    // Candidatos esperados, plaza a plaza:
+    //   - 500 (18:00, nivel 1, equipos 100/101): 40. El 30 cae por el veto del
+    //     100 y el 20 y el 50 por ventana.
+    //   - 501 (18:00, nivel 2): ninguno. El único de nivel 2 con esa ventana es
+    //     el 30, que está vetado.
+    //   - 502 (20:00, nivel 1): 30. El 40 acaba a las 18:00 y los otros dos ni
+    //     han empezado o ya acabaron.
+    //   - 503 (23:30, nivel 2): 20. El 30 acaba a las 23:00, antes del inicio.
+    const ListasCandidatos candidatos_viernes = construir_candidatos(dia_viernes);
+
+    comprobar(candidatos_viernes.offsets.size() == dia_viernes.n_plazas() + 1,
+              "el CSR debe tener una frontera por plaza y la inicial");
+    comprobar(candidatos_viernes.candidatos.size() == 3,
+              "el viernes debe tener tres parejas plaza-arbitro");
+    comprobar(candidatos_viernes.offsets ==
+                  std::vector<std::uint32_t>{0, 1, 1, 2, 3},
+              "las fronteras del CSR del viernes");
+    comprobar(candidatos_viernes.candidatos ==
+                  std::vector<std::uint32_t>{2, 1, 0},
+              "los ids compactos de los candidatos del viernes");
+
+    // El pipeline deja el CSR copiado en la instancia, así que la instancia y la
+    // función libre deben coincidir.
+    comprobar(dia_viernes.offset_candidatos == candidatos_viernes.offsets &&
+                  dia_viernes.candidatos == candidatos_viernes.candidatos,
+              "construir_instancia_dia debe copiar el CSR de la fase 5");
+    comprobar(dia_viernes.n_candidatos_totales() == 3,
+              "el total de candidatos sale del tamano del CSR");
+
+    comprobar(mismos_candidatos(dia_viernes, 0, {2}),
+              "la plaza 500 solo la puede cubrir el arbitro 40");
+    comprobar(mismos_candidatos(dia_viernes, 1, {}),
+              "la plaza 501 se queda sin candidatos (el unico nivel 2 esta vetado)");
+    comprobar(mismos_candidatos(dia_viernes, 2, {1}),
+              "la plaza 502 solo la puede cubrir el arbitro 30");
+    comprobar(mismos_candidatos(dia_viernes, 3, {0}),
+              "la plaza nocturna solo la puede cubrir el arbitro 20");
+
+    // Invariantes del CSR y de los accesores, plaza a plaza.
+    {
+        bool fronteras_monotonas = candidatos_viernes.offsets.front() == 0;
+        bool ids_ascendentes = true;
+        for (std::size_t p = 0; p < dia_viernes.n_plazas(); ++p)
+        {
+            if (candidatos_viernes.offsets[p] > candidatos_viernes.offsets[p + 1])
+            {
+                fronteras_monotonas = false;
+            }
+
+            const std::span<const std::uint32_t> lista = dia_viernes.candidatos_de(p);
+            if (lista.size() != dia_viernes.n_candidatos(p))
+            {
+                fronteras_monotonas = false;
+            }
+
+            // Un id mayor que el siguiente rompería el desempate determinista.
+            for (std::size_t i = 1; i < lista.size(); ++i)
+            {
+                if (lista[i - 1] >= lista[i])
+                {
+                    ids_ascendentes = false;
+                }
+            }
+        }
+
+        comprobar(fronteras_monotonas,
+                  "las fronteras del CSR crecen y coinciden con n_candidatos");
+        comprobar(ids_ascendentes,
+                  "los candidatos de cada plaza van en orden ascendente");
+        comprobar(candidatos_viernes.offsets.back() ==
+                      candidatos_viernes.candidatos.size(),
+                  "la ultima frontera debe cerrar el CSR");
+    }
+
+    // El filtro de ventana NO suma el viaje desde el domicilio: un árbitro
+    // disponible a las 9:00 cubre un partido a las 9:00 aunque tarde dos horas
+    // en llegar, porque sale de casa a las 7:00. Es la misma condición que
+    // aplica `coste_asignar` en el primer partido.
+    {
+        Instancia lejos;
+        lejos.partidos.push_back(partido(
+            0, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 10, 0)));
+        lejos.partidos[0].sede_id = 1;
+        lejos.partidos[0].equipo_local_id = 100;
+        lejos.partidos[0].equipo_visitante_id = 101;
+        lejos.plazas.push_back(plaza(900, 0, Rol::Principal, 1, 50.0));
+        lejos.arbitros.push_back(arbitro(
+            1, 1, 2, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 23, 0),
+            {}));
+        lejos.sedes = {sede(1), sede(2)};
+
+        // 120 minutos del domicilio (índice 1) a la sede del partido (índice 0).
+        ProveedorGuionizado recorrido({0, 120, 120, 0});
+        const std::vector<GrupoDia> grupos_lejos = agrupar_por_dia(lejos);
+        const InstanciaDia dia_lejos = construir_instancia_dia(
+            lejos, grupos_lejos[0], recorrido, con_cierre);
+
+        comprobar(dia_lejos.n_candidatos(0) == 1,
+                  "un partido a la hora exacta de primer_inicio tiene candidato");
+        comprobar(dia_lejos.viaje(dia_lejos.arbitros[0].domicilio,
+                                  dia_lejos.plazas[0].sede) == 120,
+                  "el viaje existe y es largo, pero no descarta al candidato");
+
+        // El mismo partido un minuto antes de su disponibilidad ya no vale.
+        lejos.partidos[0].inicio = instante(2026, 11, 13, 8, 59);
+        const std::vector<GrupoDia> grupos_antes = agrupar_por_dia(lejos);
+        ProveedorGuionizado recorrido_antes({0, 120, 120, 0});
+        const InstanciaDia dia_antes = construir_instancia_dia(
+            lejos, grupos_antes[0], recorrido_antes, con_cierre);
+
+        comprobar(dia_antes.n_candidatos(0) == 0,
+                  "un partido que empieza antes de la disponibilidad no tiene candidato");
+    }
+
+    // Fronteras de la ventana: el minuto exacto entra; el siguiente, no.
+    // El árbitro está disponible de 9:00 a 18:00.
+    {
+        Instancia fronteras;
+        const int horas[4][2] = {{8, 59}, {9, 0}, {18, 0}, {18, 1}};
+        for (int i = 0; i < 4; ++i)
+        {
+            fronteras.partidos.push_back(partido(
+                i, instante(2026, 11, 13, horas[i][0], horas[i][1]),
+                instante(2026, 11, 13, horas[i][0] + 1, horas[i][1])));
+            fronteras.partidos[i].sede_id = 1;
+            fronteras.plazas.push_back(
+                plaza(800 + i, i, Rol::Asistente, 1, 10.0));
+        }
+        fronteras.arbitros.push_back(arbitro(
+            1, 1, 2, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 18, 0),
+            {}));
+        fronteras.sedes = {sede(1), sede(2)};
+
+        ProveedorGuionizado corto({0, 5, 5, 0});
+        const std::vector<GrupoDia> grupos_fronteras = agrupar_por_dia(fronteras);
+        const InstanciaDia dia_fronteras = construir_instancia_dia(
+            fronteras, grupos_fronteras[0], corto, con_cierre);
+
+        // Las plazas se ordenan por hora: 8:59, 9:00, 18:00 y 18:01.
+        comprobar(dia_fronteras.n_plazas() == 4,
+                  "las cuatro plazas de frontera deben construirse");
+        comprobar(dia_fronteras.n_candidatos(0) == 0,
+                  "un partido a las 8:59 empieza antes de primer_inicio");
+        comprobar(dia_fronteras.n_candidatos(1) == 1,
+                  "un partido a las 9:00 empieza exactamente en primer_inicio");
+        comprobar(dia_fronteras.n_candidatos(2) == 1,
+                  "un partido a las 18:00 empieza exactamente en ultimo_inicio");
+        comprobar(dia_fronteras.n_candidatos(3) == 0,
+                  "un partido a las 18:01 pasa de ultimo_inicio");
+    }
+
+    // Sin ruta desde el domicilio no hay candidato, aunque nivel y ventana
+    // encajen: no se podría ni salir de casa hacia esa sede.
+    {
+        Instancia aislada;
+        aislada.partidos.push_back(partido(
+            0, instante(2026, 11, 13, 18, 0), instante(2026, 11, 13, 19, 0)));
+        aislada.partidos[0].sede_id = 1;
+        aislada.plazas.push_back(plaza(910, 0, Rol::Principal, 1, 20.0));
+        aislada.arbitros.push_back(arbitro(
+            1, 1, 2, instante(2026, 11, 13, 9, 0), instante(2026, 11, 13, 20, 0),
+            {}));
+        aislada.sedes = {sede(1), sede(2)};
+        const std::vector<GrupoDia> grupos_aislados = agrupar_por_dia(aislada);
+
+        ProveedorGuionizado inalcanzable(
+            {0, kMinutosInalcanzable, kMinutosInalcanzable, 0});
+        const InstanciaDia dia_inalcanzable = construir_instancia_dia(
+            aislada, grupos_aislados[0], inalcanzable, con_cierre);
+
+        comprobar(dia_inalcanzable.n_candidatos(0) == 0,
+                  "sin ruta desde el domicilio la plaza no tiene candidatos");
+
+        // El mismo caso con un camino posible sí tiene candidato.
+        ProveedorGuionizado alcanzable({0, 5, 5, 0});
+        const InstanciaDia dia_alcanzable = construir_instancia_dia(
+            aislada, grupos_aislados[0], alcanzable, con_cierre);
+
+        comprobar(dia_alcanzable.n_candidatos(0) == 1,
+                  "con ruta desde el domicilio el arbitro es candidato");
+    }
+
+    // Un día sin árbitros deja listas vacías, pero con el CSR bien formado.
+    {
+        ProveedorConstante constante(7);
+        const std::vector<InstanciaDia> dias =
+            construir_instancias(instancia, constante);
+
+        comprobar(dias.size() == 3, "deben construirse las tres jornadas");
+        if (dias.size() == 3)
+        {
+            // El domingo tiene una plaza y ningún árbitro disponible.
+            comprobar(dias[2].n_candidatos(0) == 0 &&
+                          dias[2].n_candidatos_totales() == 0,
+                      "una plaza sin arbitros del dia se queda sin candidatos");
+            comprobar(dias[2].offset_candidatos ==
+                          std::vector<std::uint32_t>{0, 0},
+                      "el CSR de un dia sin arbitros es [0, 0]");
+            comprobar(mismos_candidatos(dias[2], 0, {}),
+                      "candidatos_de devuelve una vista vacia sin arbitros del dia");
+        }
+
+        // Una jornada sin plazas deja el CSR con solo la frontera inicial.
+        const InstanciaDia dia_vacio;
+        const ListasCandidatos listas_vacias = construir_candidatos(dia_vacio);
+        comprobar(listas_vacias.offsets == std::vector<std::uint32_t>{0} &&
+                      listas_vacias.candidatos.empty(),
+                  "una jornada sin plazas deja el CSR en {0}");
+    }
+
+    // Pipeline completo de las fases 1-5 para las tres jornadas.
     {
         ProveedorConstante constante(7);
         const std::vector<InstanciaDia> dias =
@@ -827,12 +1075,25 @@ int main()
                       "la matriz constante se copia a cada día");
             comprobar(dias[0].viaje(0, 0) == 0,
                       "la diagonal sigue a cero con el proveedor constante");
+
+            // Fase 5: el CSR está cerrado en las tres jornadas.
+            comprobar(dias[0].offset_candidatos.size() ==
+                              dias[0].n_plazas() + 1 &&
+                          dias[1].offset_candidatos.size() ==
+                              dias[1].n_plazas() + 1 &&
+                          dias[2].offset_candidatos.size() ==
+                              dias[2].n_plazas() + 1,
+                      "cada jornada lleva una frontera por plaza");
+            comprobar(dias[0].n_candidatos_totales() == 3,
+                      "el viernes mantiene sus tres candidatos en el pipeline");
+            comprobar(dias[1].n_candidatos_totales() == 2,
+                      "el sabado lo pueden cubrir los dos arbitros del dia");
         }
     }
 
     if (fallos == 0)
     {
-        std::cout << "test_instancia (fases 1-4): OK\n";
+        std::cout << "test_instancia (fases 1-5): OK\n";
     }
     return fallos == 0 ? 0 : 1;
 }

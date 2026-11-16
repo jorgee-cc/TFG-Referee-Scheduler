@@ -1,4 +1,4 @@
-// Implementación de las fases 1-4 de los datos estáticos.
+// Implementación de las fases 1-5 de los datos estáticos.
 //
 // - Fase 1 (`agrupar_por_dia`): fecha civil de cada partido calculada una sola
 //   vez, orden por día y, a igualdad de día, por posición de entrada para que el
@@ -13,6 +13,10 @@
 //   horario, sede compacta, nivel, retribución en céntimos y equipos, ordenadas
 //   por `(minuto_inicio, sede, partido_id, plaza_id)` para que el índice sea el
 //   nivel del árbol.
+// - Fase 5 (`construir_candidatos`): para cada plaza deja en un CSR los ids
+//   compactos de los árbitros que cumplen nivel, ventana, vetos y tienen ruta
+//   desde su domicilio. No decide la factibilidad dinámica: eso depende del
+//   estado y lo comprueba el generador de hijos.
 
 #include "referee_scheduler/algorithms/construir_instancia.hpp"
 
@@ -20,6 +24,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <unordered_map>
 #include <utility>
 
@@ -211,7 +216,7 @@ namespace referee_scheduler::algorithms
             }
             std::sort(sedes_partido.begin(), sedes_partido.end());
 
-            for (const ArbitroDia &arbitro : arbitros)
+            for (const ArbitroDia &arbitro [[maybe_unused]] : arbitros)
             {
                 assert(!std::binary_search(sedes_partido.begin(),
                                            sedes_partido.end(),
@@ -474,6 +479,96 @@ namespace referee_scheduler::algorithms
         return plazas;
     }
 
+    ListasCandidatos construir_candidatos(const InstanciaDia &dia)
+    {
+        const std::size_t n_arbitros = dia.n_arbitros();
+
+        // `viaje` indexa la matriz directamente: si la fase 3 no terminó, leería
+        // fuera de rango. Se comprueba el tamaño completo de una vez.
+        assert(dia.distancias.size() == dia.n_sedes() * dia.n_sedes() &&
+               "la matriz de distancias no esta completa");
+        // Los ids del CSR son de 32 bits. Con `kMaxArbitros = 600` sobra, pero el
+        // contrato queda escrito por si la capacidad cambiara.
+        assert(n_arbitros <= std::numeric_limits<std::uint32_t>::max() &&
+               "no caben tantos arbitros en un indice de 32 bits");
+
+        ListasCandidatos listas;
+
+        // La frontera 0 y una por plaza: la ultima se rellena al cerrar la
+        // ultima plaza, asi que al final hay `n_plazas + 1`.
+        listas.offsets.reserve(dia.n_plazas() + 1);
+        listas.offsets.push_back(0);
+
+        // No se reserva `candidatos`: el numero de candidatos por plaza no se
+        // conoce sin hacer el filtrado y el crecimiento amortizado de `push_back`
+        // es despreciable para unos miles de enteros.
+
+        // Un veto es una búsqueda binaria: la fase 2 dejó `equipos_vetados`
+        // ordenado y limitado a los equipos que juegan ese día.
+        const auto vetado = [](const ArbitroDia &arbitro, int equipo)
+        {
+            return std::binary_search(arbitro.equipos_vetados.begin(),
+                                      arbitro.equipos_vetados.end(), equipo);
+        };
+
+        for (const PlazaDia &plaza : dia.plazas)
+        {
+            // Se recorre `arbitros` en orden, asi que los ids de cada plaza
+            // salen ascendentes: el desempate es siempre el mismo.
+            for (std::size_t id = 0; id < n_arbitros; ++id)
+            {
+                const ArbitroDia &arbitro = dia.arbitros[id];
+
+                // 1. Nivel: una plaza exige un minimo y el nivel no baja al
+                //    cubrir partidos, asi que el descarte es definitivo.
+                if (arbitro.nivel < plaza.nivel_requerido)
+                {
+                    continue;
+                }
+
+                // 2. Ventana: la disponibilidad limita la hora de INICIO del
+                //    partido, no su final. No se suma el viaje desde el
+                //    domicilio: el primer desplazamiento puede empezar antes de
+                //    `primer_inicio` (se sale de casa en `inicio - viaje`).
+                if (plaza.minuto_inicio < arbitro.primer_inicio ||
+                    plaza.minuto_inicio > arbitro.ultimo_inicio)
+                {
+                    continue;
+                }
+
+                // 3. Vetos: basta con tener vetado a uno de los dos equipos.
+                if (vetado(arbitro, plaza.equipo_local_id) ||
+                    vetado(arbitro, plaza.equipo_visitante_id))
+                {
+                    continue;
+                }
+
+                // 4. Ruta: sin camino desde el domicilio no hay forma de cubrir
+                //    la plaza ni siquiera como primer partido. Cuanto tarde el
+                //    viaje ya no importa aqui (ver el comentario de la ventana).
+                if (dia.viaje(arbitro.domicilio, plaza.sede) ==
+                    kMinutosInalcanzable)
+                {
+                    continue;
+                }
+
+                listas.candidatos.push_back(static_cast<std::uint32_t>(id));
+            }
+
+            // Frontera de la plaza recien filtrada: todos los candidatos
+            // anadidos hasta ahora, incluidos los de las plazas anteriores.
+            listas.offsets.push_back(
+                static_cast<std::uint32_t>(listas.candidatos.size()));
+        }
+
+        assert(listas.offsets.size() == dia.n_plazas() + 1 &&
+               "el CSR debe tener una frontera por plaza mas la inicial");
+        assert(listas.offsets.back() == listas.candidatos.size() &&
+               "la ultima frontera debe cerrar el CSR");
+
+        return listas;
+    }
+
     InstanciaDia construir_instancia_dia(
         const domain::Instancia &instancia,
         const GrupoDia &grupo,
@@ -496,6 +591,13 @@ namespace referee_scheduler::algorithms
         // Fase 4: plazas del día ordenadas cronológicamente. Depende de la fase
         // 3 para traducir la sede del partido a índice compacto.
         dia.plazas = construir_plazas(instancia, grupo, dia.sede_global);
+
+        // Fase 5: candidatos de cada plaza. Necesita la fase 2 (nivel, ventana y
+        // vetos), la fase 3 (domicilio compacto y existencia de ruta) y la fase 4
+        // (plazas ya ordenadas: el CSR sigue ese mismo orden, plaza a plaza).
+        ListasCandidatos listas = construir_candidatos(dia);
+        dia.candidatos = std::move(listas.candidatos);
+        dia.offset_candidatos = std::move(listas.offsets);
 
         return dia;
     }

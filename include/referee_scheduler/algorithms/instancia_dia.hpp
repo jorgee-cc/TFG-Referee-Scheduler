@@ -1,13 +1,14 @@
 // Tipos de datos estáticos de UNA jornada: el árbitro ya compactado, la matriz
-// de distancias entre sus sedes, las plazas ordenadas cronológicamente y, más
-// adelante, las listas de candidatos. Indexar por `0..N_dia-1` (en vez de por el
-// id global) es lo que permite que `Estado` y `Arena` no guarden ranuras de
-// árbitros que ese día no trabajan.
+// de distancias entre sus sedes, las plazas ordenadas cronológicamente y las
+// listas de candidatos por plaza (fase 5). Indexar por `0..N_dia-1` (en vez de
+// por el id global) es lo que permite que `Estado` y `Arena` no guarden ranuras
+// de árbitros que ese día no trabajan.
 
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <type_traits>
 #include <vector>
 
@@ -149,10 +150,10 @@ namespace referee_scheduler::algorithms
     ///
     /// Es lo que consume el buscador: no guarda entidades del dominio, sino
     /// índices densos (`0..n_arbitros-1`, `0..n_sedes-1`, `0..n_plazas-1`)
-    /// listos para el estado. Se construye fase a fase; con la fase 4 contiene ya
+    /// listos para el estado. Se construye fase a fase; con la fase 5 contiene ya
     /// los árbitros del día, la matriz de distancias entre las sedes implicadas
-    /// (sedes de los partidos y domicilios de los árbitros) y las plazas
-    /// ordenadas por hora de inicio.
+    /// (sedes de los partidos y domicilios de los árbitros), las plazas
+    /// ordenadas por hora de inicio y los candidatos de cada plaza.
     class InstanciaDia
     {
     public:
@@ -182,6 +183,31 @@ namespace referee_scheduler::algorithms
         /// orden en que el cargador haya metido partidos y plazas.
         std::vector<PlazaDia> plazas;
 
+        /// Candidatos de todas las plazas en formato CSR (fase 5): los de la
+        /// plaza `p` ocupan `[offset_candidatos[p], offset_candidatos[p + 1])`.
+        ///
+        /// Cada valor es un **id compacto de árbitro** (`0..n_arbitros-1`), no un
+        /// id global: es lo que indexa `Estado` y `Arena`. Los candidatos de una
+        /// plaza van en orden ascendente, así que dos árbitros igual de buenos se
+        /// desempatan siempre igual y la búsqueda es reproducible.
+        ///
+        /// Estar en la lista es solo una condición **necesaria**: significa que
+        /// el árbitro cumple nivel, ventana y vetos y que existe ruta desde su
+        /// domicilio. Que además llegue a tiempo depende del estado (dónde está y
+        /// cuándo queda libre), y eso lo comprueba el generador de hijos con
+        /// `coste_asignar`.
+        std::vector<std::uint32_t> candidatos;
+
+        /// Fronteras del CSR: `n_plazas() + 1` valores, `offset_candidatos[0] =
+        /// 0` y `offset_candidatos.back() == candidatos.size()`. Es monótona, de
+        /// modo que `offset_candidatos[p + 1] - offset_candidatos[p]` es el
+        /// número de candidatos de la plaza `p`.
+        ///
+        /// Se guarda una frontera por plaza (y no solo el inicio) porque el
+        /// tamaño de la lista se consulta en el bucle caliente del generador y el
+        /// `std::span` necesita las dos.
+        std::vector<std::uint32_t> offset_candidatos;
+
         /// Número de árbitros compactados del día.
         std::size_t n_arbitros() const noexcept;
 
@@ -190,6 +216,22 @@ namespace referee_scheduler::algorithms
 
         /// Número de plazas del día (niveles del árbol de búsqueda).
         std::size_t n_plazas() const noexcept;
+
+        /// Número de candidatos de la plaza `plaza`. La plaza debe existir y las
+        /// listas deben estar construidas (fase 5).
+        std::uint32_t n_candidatos(std::size_t plaza) const;
+
+        /// Vista de los candidatos de la plaza `plaza`, ya acotada a su longitud.
+        ///
+        /// Devuelve un `std::span` (no un par de punteros ni un vector) para que
+        /// sea imposible iterar fuera de la lista de esa plaza: el tamaño sale
+        /// del CSR y no se puede confundir con el de la plaza siguiente.
+        std::span<const std::uint32_t> candidatos_de(std::size_t plaza) const;
+
+        /// Suma de candidatos de todas las plazas, útil para dimensionar
+        /// estructuras de la búsqueda (no se guarda como campo para no duplicar
+        /// un dato que ya está en `candidatos`).
+        std::size_t n_candidatos_totales() const noexcept;
 
         /// Minutos de viaje de la sede compacta `desde` a la `hasta`.
         ///
