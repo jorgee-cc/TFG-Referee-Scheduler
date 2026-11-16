@@ -188,5 +188,5 @@ Por cada hijo generado, coste_asignar hace:
   Escribir la versión legible (con el ternario para "en casa", que además evita el salto) y posponer la medición a cuando exista Dijkstra:
 
 1. Ahora: fórmula clara y correcta.
-2. Paso 5c: listas de candidatos por plaza, que ya descartan por tiempo antes de llamar a la función (ahí desaparece el if de factibilidad del bucle caliente).
+2. Las listas de candidatos por plaza (fase 5) ya descartan nivel, ventana, vetos y falta de ruta de ida y vuelta; la llegada tarde sigue siendo dinámica y la comprueba el generador de hijos (`transiciones.hpp`).
 3. Con Dijkstra funcionando: perf stat/perf record y decidir si de verdad importa.

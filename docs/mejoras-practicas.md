@@ -1,8 +1,8 @@
 # Mejoras prácticas
 
-Ideas que no se implementan todavía porque dependen de piezas que aún no existen
-(matriz de distancias, generador de transiciones) o porque conviene medirlas
-antes de complicar la búsqueda.
+Ideas que no se implementan todavía, aunque sus piezas base ya existen (matriz de
+distancias y generador de transiciones), porque conviene medirlas antes de
+complicar la búsqueda.
 
 ## Tiempos largos: ida y vuelta a casa sin contarlos como tiempo muerto
 
@@ -107,14 +107,14 @@ distancias por candidato.
 - **Última hora del día**: el ajuste de retorno asume que la jornada termina
   en la última sede. La variante por casa no cambia eso: el último partido
   sigue pagando su vuelta a casa.
-- **Matriz de distancias**: todo esto necesita `d(sede, sede)` (paso 5d). Sin
-  ella no se puede medir si compensa.
+- **Matriz de distancias**: ya está disponible (`InstanciaDia::distancias` y
+  `viaje`); falta medir si la variante por casa compensa.
 
 ### Coste de implementación
 
 Bajo: la fórmula no cambia, solo se llama dos veces con estados de partida
-distintos y se toma el mínimo. Requiere únicamente:
+distintos y se toma el mínimo. Las dos piezas base ya existen; queda:
 
-1. La matriz de distancias.
-2. El generador de transiciones (paso 3).
-3. Una constante `kMinutosMinimosEnCasa = 60` y dos lecturas extra de matriz.
+1. Usar la matriz de distancias (`InstanciaDia::viaje`).
+2. Integrarlo en el generador de transiciones (`generar_hijos`).
+3. Añadir una constante `kMinutosMinimosEnCasa = 60` y dos lecturas extra de matriz.
