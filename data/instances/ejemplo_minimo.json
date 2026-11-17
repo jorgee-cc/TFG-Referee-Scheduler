@@ -1,4 +1,6 @@
 {
+  "descripcion": "ejemplo_minimo.json: el caso más pequeño posible, un partido con sus tres plazas (principal, asistente y anotador) y un único árbitro. equipos=2, sedes=2 (1 de partido + 1 domicilio), arbitros=1, partidos=1, plazas=3, dias=1.",
+  "resumen": {"equipos": 2, "sedes": 2, "sedes_partido": 1, "domicilios": 1, "arbitros": 1, "partidos": 1, "plazas": 3, "dias": 1},
   "equipos": [
     {"id": 1, "nombre": "Riazor CF"},
     {"id": 2, "nombre": "Atlántico SD"}
@@ -14,6 +16,8 @@
     {"id": 1000, "sede_id": 10, "inicio": "2026-11-20T18:00:00", "final": "2026-11-20T19:30:00", "equipo_local_id": 1, "equipo_visitante_id": 2}
   ],
   "plazas": [
-    {"id": 10000, "partido_id": 1000, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0}
+    {"id": 10000, "partido_id": 1000, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
+    {"id": 10001, "partido_id": 1000, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10002, "partido_id": 1000, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0}
   ]
 }

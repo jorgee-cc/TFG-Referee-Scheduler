@@ -1,4 +1,6 @@
 {
+  "descripcion": "ejemplo_muchas_plazas.json: diez partidos de tres plazas (30 en total) con solo 15 árbitros, para forzar plazas secundarias vacías. equipos=20, sedes=20 (5 de partido + 15 domicilios), arbitros=15, partidos=10, plazas=30, dias=1.",
+  "resumen": {"equipos": 20, "sedes": 20, "sedes_partido": 5, "domicilios": 15, "arbitros": 15, "partidos": 10, "plazas": 30, "dias": 1},
   "equipos": [
     {"id": 1, "nombre": "Riazor CF"},
     {"id": 2, "nombre": "Atlántico SD"},
@@ -75,23 +77,33 @@
   "plazas": [
     {"id": 10000, "partido_id": 1000, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10001, "partido_id": 1000, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10020, "partido_id": 1000, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10002, "partido_id": 1001, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10003, "partido_id": 1001, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10021, "partido_id": 1001, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10004, "partido_id": 1002, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10005, "partido_id": 1002, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10022, "partido_id": 1002, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10006, "partido_id": 1003, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10007, "partido_id": 1003, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10023, "partido_id": 1003, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10008, "partido_id": 1004, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10009, "partido_id": 1004, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10024, "partido_id": 1004, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10010, "partido_id": 1005, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10011, "partido_id": 1005, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10025, "partido_id": 1005, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10012, "partido_id": 1006, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10013, "partido_id": 1006, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10026, "partido_id": 1006, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10014, "partido_id": 1007, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10015, "partido_id": 1007, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10027, "partido_id": 1007, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10016, "partido_id": 1008, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10017, "partido_id": 1008, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10028, "partido_id": 1008, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10018, "partido_id": 1009, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
-    {"id": 10019, "partido_id": 1009, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0}
+    {"id": 10019, "partido_id": 1009, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10029, "partido_id": 1009, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0}
   ]
 }

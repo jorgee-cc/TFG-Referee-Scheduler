@@ -47,7 +47,7 @@ namespace referee_scheduler::algorithms
         /// hay) **no está demostrada óptima**. La última expansión puede pasarse
         /// un poco del presupuesto, porque se comprueba una vez por expansión y
         /// no por hijo.
-        std::size_t max_nodos = 1'000'000;
+        std::size_t max_nodos = 25'000'000;
 
         /// Céntimos por cubo de la lista abierta.
         ///

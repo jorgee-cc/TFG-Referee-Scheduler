@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<!--
+    Diagrama de uso del planificador (TFG Referee Scheduler).
+
+    Un único fichero, sin dependencias externas ni red: se abre con doble clic.
+    Muestra el recorrido completo de una ejecución —entrada, datos estáticos del
+    día (fases 1-5), búsqueda (arena, frontera y bucle de Dijkstra) y salida— y
+    permite pulsar cada módulo para ver su fichero, su función y su papel.
+
+    Los nombres, rutas y firmas son los del código real; lo que está marcado como
+    "pendiente" todavía no existe (cargador del paso 5g y orquestación en main).
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagrama de uso · Referee Scheduler</title>
+<style>
+    /* ------------------------------------------------------------------
+       Tokens de color y tipografía
+       ------------------------------------------------------------------ */
+    :root {
+        --fondo: #f6f7f9;
+        --papel: #ffffff;
+        --tinta: #1c2430;
+        --tinta-suave: #5b6878;
+        --borde: #dfe4ea;
+        --acento: #1f6feb;
+        --entrada: #6b7280;      /* gris: datos de entrada */
+        --estatico: #0f766e;     /* verde: datos estáticos del día */
+        --busqueda: #7c3aed;     /* violeta: búsqueda */
+        --salida: #b45309;       /* ámbar: salida */
+        --pendiente: #9ca3af;    /* gris claro: aún no implementado */
+        --radio: 12px;
+        --sombra: 0 1px 2px rgba(16, 24, 40, .06), 0 8px 24px rgba(16, 24, 40, .05);
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; }
+
+    body {
+        background: var(--fondo);
+        color: var(--tinta);
+        font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        padding: 28px 20px 96px;
+    }
+
+    .hoja {
+        max-width: 1120px;
+        margin: 0 auto;
+    }
+
+    /* ------------------------------------------------------------------
+       Cabecera
+       ------------------------------------------------------------------ */
+    header.portada {
+        margin-bottom: 26px;
+    }
+
+    header.portada h1 {
+        margin: 0 0 6px;
+        font-size: clamp(22px, 3vw, 30px);
+        letter-spacing: -.02em;
+    }
+
+    header.portada p {
+        margin: 0;
+        color: var(--tinta-suave);
+        max-width: 78ch;
+    }
+
+    .leyenda {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+        margin-top: 16px;
+        font-size: 13px;
+        color: var(--tinta-suave);
+    }
+
+    .leyenda span { display: inline-flex; align-items: center; gap: 6px; }
+
+    .punto {
+        width: 10px; height: 10px; border-radius: 50%;
+        display: inline-block;
+    }
+
+    /* ------------------------------------------------------------------
+       Fases: una tarjeta grande por tramo, con sus módulos dentro
+       ------------------------------------------------------------------ */
+    .fase {
+        background: var(--papel);
+        border: 1px solid var(--borde);
+        border-radius: 16px;
+        box-shadow: var(--sombra);
+        padding: 18px 18px 20px;
+        margin: 0;
+    }
+
+    .fase__cabecera {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 10px;
+        margin-bottom: 14px;
+        padding-bottom: 12px;
+        border-bottom: 1px dashed var(--borde);
+    }
+
+    .fase__etiqueta {
+        font: 600 11px/1 var(--mono);
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        padding: 6px 8px;
+        border-radius: 999px;
+        color: #fff;
+        background: var(--entrada);
+        white-space: nowrap;
+    }
+
+    .fase[data-tramo="estatico"] .fase__etiqueta { background: var(--estatico); }
+    .fase[data-tramo="busqueda"] .fase__etiqueta { background: var(--busqueda); }
+    .fase[data-tramo="salida"] .fase__etiqueta { background: var(--salida); }
+
+    .fase__titulo {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 650;
+    }
+
+    .fase__nota {
+        margin: 0;
+        color: var(--tinta-suave);
+        font-size: 13px;
+        flex-basis: 100%;
+    }
+
+    .rejilla {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 12px;
+    }
+
+    /* ------------------------------------------------------------------
+       Módulos (botones: al pulsarlos se abre el detalle)
+       ------------------------------------------------------------------ */
+    .modulo {
+        position: relative;
+        display: block;
+        width: 100%;
+        text-align: left;
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+        background: #fbfcfd;
+        border: 1px solid var(--borde);
+        border-left: 4px solid var(--entrada);
+        border-radius: var(--radio);
+        padding: 12px 14px 13px;
+        transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+    }
+
+    .modulo:hover,
+    .modulo:focus-visible {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 18px rgba(16, 24, 40, .10);
+        border-color: #c8d0da;
+        outline: none;
+    }
+
+    .modulo[aria-pressed="true"] {
+        border-color: var(--acento);
+        box-shadow: 0 0 0 2px rgba(31, 111, 235, .18);
+    }
+
+    .modulo[data-tramo="estatico"] { border-left-color: var(--estatico); }
+    .modulo[data-tramo="busqueda"] { border-left-color: var(--busqueda); }
+    .modulo[data-tramo="salida"] { border-left-color: var(--salida); }
+    .modulo[data-estado="pendiente"] {
+        border-left-color: var(--pendiente);
+        background: repeating-linear-gradient(135deg, #fbfcfd, #fbfcfd 8px, #f3f5f7 8px, #f3f5f7 16px);
+        color: var(--tinta-suave);
+    }
+
+    .modulo__nombre {
+        display: block;
+        font: 600 14px/1.3 var(--mono);
+        margin-bottom: 4px;
+        word-break: break-word;
+    }
+
+    .modulo__papel {
+        display: block;
+        font-size: 13px;
+        color: var(--tinta-suave);
+    }
+
+    .modulo__pie {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 8px;
+        margin-top: 9px;
+        font: 500 11px/1.3 var(--mono);
+        color: var(--tinta-suave);
+    }
+
+    .chip {
+        border: 1px solid var(--borde);
+        border-radius: 999px;
+        padding: 4px 7px;
+        background: #fff;
+        white-space: nowrap;
+    }
+
+    .chip[data-estado="pendiente"] { border-style: dashed; }
+
+    /* Resultado de una fase: ocupa toda la fila y se tiñe con el color del tramo. */
+    .modulo--destino {
+        grid-column: 1 / -1;
+        background: rgba(15, 118, 110, .05);
+        border-left-width: 4px;
+    }
+
+    code {
+        font-family: var(--mono);
+        font-size: .9em;
+        background: rgba(16, 24, 40, .055);
+        border-radius: 5px;
+        padding: 1px 5px;
+    }
+
+    /* ------------------------------------------------------------------
+       Flechas entre fases y sub-pasos numerados
+       ------------------------------------------------------------------ */
+    .flecha {
+        display: flex;
+        justify-content: center;
+        padding: 10px 0;
+        color: #b6bfca;
+        font-size: 20px;
+        line-height: 1;
+    }
+
+    .flecha span { animation: latido 2.6s ease-in-out infinite; }
+
+    @keyframes latido {
+        0%, 100% { transform: translateY(0); opacity: .55; }
+        50% { transform: translateY(3px); opacity: 1; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .flecha span { animation: none; }
+        .modulo { transition: none; }
+    }
+
+    .pasos {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        counter-reset: paso;
+        display: grid;
+        gap: 10px;
+    }
+
+    .pasos li {
+        counter-increment: paso;
+        display: grid;
+        grid-template-columns: 30px 1fr;
+        gap: 12px;
+        align-items: start;
+        background: #fbfcfd;
+        border: 1px solid var(--borde);
+        border-radius: var(--radio);
+        padding: 11px 14px;
+    }
+
+    .pasos li::before {
+        content: counter(paso);
+        display: grid;
+        place-items: center;
+        width: 26px; height: 26px;
+        border-radius: 50%;
+        background: rgba(124, 58, 237, .10);
+        color: var(--busqueda);
+        font: 700 12px/1 var(--mono);
+    }
+
+    .pasos strong { font-family: var(--mono); font-size: 13.5px; }
+    .pasos em { font-style: normal; color: var(--tinta-suave); font-size: 13px; display: block; }
+
+    /* ------------------------------------------------------------------
+       Panel de detalle
+       ------------------------------------------------------------------ */
+    #detalle {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        width: min(380px, calc(100vw - 40px));
+        max-height: min(70vh, 520px);
+        overflow: auto;
+        background: var(--papel);
+        border: 1px solid var(--borde);
+        border-radius: 14px;
+        box-shadow: 0 12px 40px rgba(16, 24, 40, .18);
+        padding: 16px 18px;
+        z-index: 10;
+    }
+
+    #detalle[hidden] { display: none; }
+
+    #detalle h2 {
+        margin: 0 0 2px;
+        font: 600 16px/1.3 var(--mono);
+        word-break: break-word;
+    }
+
+    #detalle .ruta {
+        display: block;
+        font: 12px/1.4 var(--mono);
+        color: var(--tinta-suave);
+        margin-bottom: 10px;
+        word-break: normal;
+        overflow-wrap: anywhere;
+    }
+
+    #detalle p { margin: 0 0 10px; font-size: 13.5px; }
+
+    #detalle dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6px 10px;
+        font-size: 13px;
+    }
+
+    #detalle dt { color: var(--tinta-suave); }
+    #detalle dd { margin: 0; font-family: var(--mono); font-size: 12.5px; }
+    /* Las notas son prosa, no código: se leen mejor con la fuente del cuerpo. */
+    #detalle dd:last-of-type { font-family: inherit; font-size: 13px; }
+
+    #cerrar {
+        position: absolute;
+        top: 10px; right: 10px;
+        width: 28px; height: 28px;
+        border-radius: 8px;
+        border: 1px solid var(--borde);
+        background: #fff;
+        color: var(--tinta-suave);
+        font: 16px/1 system-ui, sans-serif;
+        cursor: pointer;
+    }
+
+    #cerrar:hover { background: #f1f3f5; }
+
+    @media (max-width: 720px) {
+        body { padding: 18px 12px 120px; }
+        #detalle { left: 12px; right: 12px; width: auto; bottom: 12px; }
+    }
+
+    @media print {
+        body { background: #fff; padding: 0; }
+        .fase { box-shadow: none; break-inside: avoid; }
+        #detalle, .flecha { display: none !important; }
+        .modulo { break-inside: avoid; }
+    }
+</style>
+</head>
+<body>
+<div class="hoja">
+
+    <header class="portada">
+        <h1>Recorrido completo de una ejecución</h1>
+        <p>
+            De los datos de entrada a la planificación de un día, en el orden real de las llamadas.
+            Pulsa cualquier módulo para ver su fichero, su función y qué recibe y devuelve.
+        </p>
+        <div class="leyenda">
+            <span><i class="punto" style="background: var(--entrada)"></i> entrada</span>
+            <span><i class="punto" style="background: var(--estatico)"></i> datos estáticos del día</span>
+            <span><i class="punto" style="background: var(--busqueda)"></i> búsqueda</span>
+            <span><i class="punto" style="background: var(--salida)"></i> salida</span>
+            <span><i class="punto" style="background: var(--pendiente)"></i> pendiente (paso 5g / orquestación)</span>
+        </div>
+    </header>
+
+    <!-- ============================================================
+         1. Entrada
+         ============================================================ -->
+    <section class="fase" data-tramo="entrada">
+        <div class="fase__cabecera">
+            <span class="fase__etiqueta">Entrada</span>
+            <h2 class="fase__titulo">Datos de la competición</h2>
+            <p class="fase__nota">
+                Equipos, sedes con coordenadas, árbitros con disponibilidad y domicilio, partidos y plazas,
+                todo referenciado por id global.
+            </p>
+        </div>
+        <div class="rejilla">
+            <button class="modulo" data-id="cargador" data-tramo="entrada" data-estado="pendiente">
+                <span class="modulo__nombre">cargador</span>
+                <span class="modulo__papel">Lee el fichero de instancia y valida la integridad referencial.</span>
+                <span class="modulo__pie"><span class="chip" data-estado="pendiente">pendiente</span> paso 5g</span>
+            </button>
+
+            <button class="modulo" data-id="instancia" data-tramo="entrada">
+                <span class="modulo__nombre">domain::Instancia</span>
+                <span class="modulo__papel">Agregado de entrada en memoria: la única dependencia del algoritmo.</span>
+                <span class="modulo__pie"><span class="chip">cabecera</span> 5 vectores</span>
+            </button>
+        </div>
+    </section>
+
+    <div class="flecha" aria-hidden="true"><span>▼</span></div>
+
+    <!-- ============================================================
+         2. Partición por día
+         ============================================================ -->
+    <section class="fase" data-tramo="estatico">
+        <div class="fase__cabecera">
+            <span class="fase__etiqueta">Fase 1</span>
+            <h2 class="fase__titulo">Partición por fecha civil</h2>
+            <p class="fase__nota">
+                Un <code>GrupoDia</code> por fecha (viernes, sábado, domingo…). Cada día es independiente
+                y se puede resolver en paralelo; el partido pertenece al día en que <em>empieza</em>.
+            </p>
+        </div>
+        <div class="rejilla">
+            <button class="modulo" data-id="agrupar" data-tramo="estatico">
+                <span class="modulo__nombre">agrupar_por_dia</span>
+                <span class="modulo__papel">Agrupa los partidos por fecha local y devuelve sus índices.</span>
+                <span class="modulo__pie"><span class="chip">construir_instancia</span> O(P log P)</span>
+            </button>
+
+            <button class="modulo" data-id="grupo" data-tramo="estatico">
+                <span class="modulo__nombre">GrupoDia</span>
+                <span class="modulo__papel">Día civil + posiciones de sus partidos en la instancia.</span>
+                <span class="modulo__pie"><span class="chip">sin copias</span> índices</span>
+            </button>
+        </div>
+    </section>
+
+    <div class="flecha" aria-hidden="true"><span>▼</span></div>
+
+    <!-- ============================================================
+         3. Datos estáticos del día
+         ============================================================ -->
+    <section class="fase" data-tramo="estatico">
+        <div class="fase__cabecera">
+            <span class="fase__etiqueta">Fases 2-5</span>
+            <h2 class="fase__titulo">Datos estáticos de un día</h2>
+            <p class="fase__nota">
+                <code>construir_instancia_dia</code> encadena las cuatro fases en este orden; el resultado,
+                <code>InstanciaDia</code>, es todo lo que consume la búsqueda.
+            </p>
+        </div>
+        <div class="rejilla">
+            <button class="modulo" data-id="compactar" data-tramo="estatico">
+                <span class="modulo__nombre">compactar_arbitros</span>
+                <span class="modulo__papel">Fase 2: árbitros del día a ids compactos 0..N-1, con nivel, ventana y vetos.</span>
+                <span class="modulo__pie"><span class="chip">ArbitroDia</span> orden por id global</span>
+            </button>
+
+            <button class="modulo" data-id="matriz" data-tramo="estatico">
+                <span class="modulo__nombre">construir_matriz_distancias</span>
+                <span class="modulo__papel">Fase 3: sedes ∪ domicilios, matriz M×M de minutos y cierre métrico.</span>
+                <span class="modulo__pie"><span class="chip">OSRM</span> caché en data/generated</span>
+            </button>
+
+            <button class="modulo" data-id="plazas" data-tramo="estatico">
+                <span class="modulo__nombre">construir_plazas</span>
+                <span class="modulo__papel">Fase 4: expande los partidos en plazas ordenadas; el índice es el nivel del árbol.</span>
+                <span class="modulo__pie"><span class="chip">PlazaDia</span> orden total</span>
+            </button>
+
+            <button class="modulo" data-id="candidatos" data-tramo="estatico">
+                <span class="modulo__nombre">construir_candidatos</span>
+                <span class="modulo__papel">Fase 5: CSR de candidatos por plaza (nivel, ventana, vetos, ruta ida y vuelta).</span>
+                <span class="modulo__pie"><span class="chip">CSR</span> necesario, no suficiente</span>
+            </button>
+
+            <button class="modulo modulo--destino" data-id="instanciadia" data-tramo="estatico">
+                <span class="modulo__nombre">InstanciaDia</span>
+                <span class="modulo__papel">Resultado de las cuatro fases: todo lo estático del día (árbitros, sedes, matriz, plazas y candidatos), ya compactado a índices densos y listo para la búsqueda.</span>
+                <span class="modulo__pie"><span class="chip">sin búsqueda</span> <span>copiable</span> <span>es la entrada de buscar_dijkstra</span></span>
+            </button>
+        </div>
+    </section>
+
+    <div class="flecha" aria-hidden="true"><span>▼</span></div>
+
+    <!-- ============================================================
+         4. Búsqueda
+         ============================================================ -->
+    <section class="fase" data-tramo="busqueda">
+        <div class="fase__cabecera">
+            <span class="fase__etiqueta">Pasos 4 y 6</span>
+            <h2 class="fase__titulo">Búsqueda del día con Dijkstra</h2>
+            <p class="fase__nota">
+                Tres estructuras y un bucle. Las claves son <strong>céntimos enteros</strong> y nunca
+                disminuyen; la frontera las ordena en cubos y la tabla de estados evita repetir repartos.
+            </p>
+        </div>
+        <div class="rejilla">
+            <button class="modulo" data-id="arena" data-tramo="busqueda">
+                <span class="modulo__nombre">Arena(n_arbitros)</span>
+                <span class="modulo__papel">Nodos con direcciones estables: cabecera de 24 B + 4 B por árbitro.</span>
+                <span class="modulo__pie"><span class="chip">bloques 64 KiB</span> stride en ejecución</span>
+            </button>
+
+            <button class="modulo" data-id="abierta" data-tramo="busqueda">
+                <span class="modulo__nombre">ListaAbierta</span>
+                <span class="modulo__papel">Frontera en cubos por céntimo: insertar y extraer el mínimo en O(1).</span>
+                <span class="modulo__pie"><span class="chip">anchura 1</span> LIFO por cubo</span>
+            </button>
+
+            <button class="modulo" data-id="tabla" data-tramo="busqueda">
+                <span class="modulo__nombre">TablaEstados</span>
+                <span class="modulo__papel">Lista cerrada (nivel, estado) → mejor nodo, con comparación exacta.</span>
+                <span class="modulo__pie"><span class="chip">16 B/entrada</span> hash abierto</span>
+            </button>
+
+            <button class="modulo" data-id="raiz" data-tramo="busqueda">
+                <span class="modulo__nombre">crear_raiz</span>
+                <span class="modulo__papel">Estado inicial (cada árbitro en su domicilio) y nodo 0 con coste 0.</span>
+                <span class="modulo__pie"><span class="chip">nivel 0</span> padre kSinNodo</span>
+            </button>
+
+            <button class="modulo" data-id="objetivo" data-tramo="busqueda">
+                <span class="modulo__nombre">coste_asignar</span>
+                <span class="modulo__papel">Coste y factibilidad de una asignación: viaje, espera y ajuste de retorno.</span>
+                <span class="modulo__pie"><span class="chip">céntimos</span> ε + tiempo · k</span>
+            </button>
+
+            <button class="modulo" data-id="generar" data-tramo="busqueda">
+                <span class="modulo__nombre">generar_hijos</span>
+                <span class="modulo__papel">Crea el nodo hijo copiando el padre y parcheando 4 B del árbitro.</span>
+                <span class="modulo__pie"><span class="chip">callback</span> orden determinista</span>
+            </button>
+        </div>
+
+        <div class="fase__cabecera" style="margin-top: 20px;">
+            <span class="fase__etiqueta">Bucle</span>
+            <h2 class="fase__titulo">buscar_dijkstra</h2>
+        </div>
+        <ol class="pasos">
+            <li>
+                <div>
+                    <strong>abierta.clave_min()</strong>
+                    <em>Si ya no puede mejorar al incumbente, la búsqueda termina. También se comprueba el presupuesto de nodos.</em>
+                </div>
+            </li>
+            <li>
+                <div>
+                    <strong>abierta.extraer_min()</strong>
+                    <em>Sale el nodo de menor clave. Si lleva el bit <code>kFlagSuperado</code>, lo sustituyó un camino mejor: se descarta sin expandir.</em>
+                </div>
+            </li>
+            <li>
+                <div>
+                    <strong>es_meta(nodo)</strong>
+                    <em>Si nivel == n_plazas, es una solución completa: pasa a ser el incumbente y el bucle continúa solo si algo puede mejorarlo.</em>
+                </div>
+            </li>
+            <li>
+                <div>
+                    <strong>generar_hijos(…, consumidor)</strong>
+                    <em>Por cada candidato del CSR: tres consultas a la matriz, <code>coste_asignar</code>, y si es factible <code>arena.crear</code> + parcheo de 4 B. Después, la rama de plaza vacía si el rol no es principal.</em>
+                </div>
+            </li>
+            <li>
+                <div>
+                    <strong>consumidor(hijo)</strong>
+                    <em>Cota del incumbente → <code>tabla.mejorar</code> → <code>abierta.insertar(hijo, g)</code>. El hijo rechazado nunca entra en la frontera y su subárbol no se explora.</em>
+                </div>
+            </li>
+        </ol>
+    </section>
+
+    <div class="flecha" aria-hidden="true"><span>▼</span></div>
+
+    <!-- ============================================================
+         5. Salida
+         ============================================================ -->
+    <section class="fase" data-tramo="salida">
+        <div class="fase__cabecera">
+            <span class="fase__etiqueta">Salida</span>
+            <h2 class="fase__titulo">Solución y métricas</h2>
+            <p class="fase__nota">
+                La meta guarda en cada nodo la decisión que lo creó, así que reconstruir es subir por los
+                padres, sin comparar estados.
+            </p>
+        </div>
+        <div class="rejilla">
+            <button class="modulo" data-id="reconstruir" data-tramo="salida">
+                <span class="modulo__nombre">reconstruir_solucion</span>
+                <span class="modulo__papel">Sube de la meta a la raíz leyendo <code>decision</code> y traduce a ids globales.</span>
+                <span class="modulo__pie"><span class="chip">SolucionDia</span> orden cronológico</span>
+            </button>
+
+            <button class="modulo" data-id="resultado" data-tramo="salida">
+                <span class="modulo__nombre">ResultadoBusqueda</span>
+                <span class="modulo__papel">Causa de parada, coste, solución y métricas de la búsqueda.</span>
+                <span class="modulo__pie"><span class="chip">Optima</span> / SinSolucion / Presupuesto</span>
+            </button>
+
+            <button class="modulo" data-id="main" data-tramo="salida" data-estado="pendiente">
+                <span class="modulo__nombre">main / orquestación</span>
+                <span class="modulo__papel">Casos triviales por día, creación de la arena, paralelo y agregación.</span>
+                <span class="modulo__pie"><span class="chip" data-estado="pendiente">pendiente</span> src/main.cpp</span>
+            </button>
+        </div>
+    </section>
+
+    <p style="margin: 22px 0 0; color: var(--tinta-suave); font-size: 13px;">
+        Un día sin árbitros o sin plazas no llega nunca a la arena: lo resuelve el orquestador antes
+        (todas las secundarias vacías, coste de sus retribuciones, o coste 0 si no hay plazas).
+        Una plaza principal sin candidatos termina en <code>SinSolucion</code>.
+    </p>
+</div>
+
+<!-- ================================================================
+     Panel de detalle
+     ================================================================ -->
+<aside id="detalle" hidden aria-live="polite">
+    <button id="cerrar" aria-label="Cerrar detalle">×</button>
+    <h2 id="detalle-nombre"></h2>
+    <span class="ruta" id="detalle-ruta"></span>
+    <p id="detalle-texto"></p>
+    <dl>
+        <dt>Entrada</dt><dd id="detalle-entrada"></dd>
+        <dt>Salida</dt><dd id="detalle-salida"></dd>
+        <dt>Notas</dt><dd id="detalle-notas"></dd>
+    </dl>
+</aside>
+
+<script>
+/* ----------------------------------------------------------------------
+   Ficha de cada módulo. `ruta` es el fichero real del repositorio.
+   ---------------------------------------------------------------------- */
+const INFO = {
+    cargador: {
+        nombre: 'cargador (pendiente)',
+        ruta: 'data/instances/ → domain::Instancia',
+        texto: 'Leerá el fichero de instancia y construirá el agregado de entrada. Debe validar la integridad referencial: ids de sede, árbitro y partido existentes, plazas con al menos un rol, coordenadas no nulas y ventanas de disponibilidad coherentes. Nada de eso está todavía en el repositorio.',
+        entrada: 'fichero de instancia',
+        salida: 'domain::Instancia',
+        notas: 'paso 5g del roadmap; hasta entonces las instancias se construyen en los tests',
+    },
+    instancia: {
+        nombre: 'domain::Instancia',
+        ruta: 'include/referee_scheduler/domain/instancia.hpp',
+        texto: 'Agregado con equipos, sedes, árbitros, partidos y plazas. Todo se referencia por id global (int), sin punteros ni objetos anidados, y los campos son públicos: es un contenedor de datos, no una entidad con lógica.',
+        entrada: 'la rellena el cargador',
+        salida: 'vector<Equipo>, <Sede>, <Arbitro>, <Partido>, <Plaza>',
+        notas: 'header-only; una Sede es o recinto o domicilio, nunca las dos cosas',
+    },
+    agrupar: {
+        nombre: 'agrupar_por_dia',
+        ruta: 'include/referee_scheduler/algorithms/construir_instancia.hpp',
+        texto: 'Fase 1. Descompone Partido::inicio en fecha civil local (utilidades de tiempo.hpp) y agrupa. Devuelve un GrupoDia por fecha, ordenados del más antiguo al más reciente, con los índices de los partidos en el orden de entrada.',
+        entrada: 'domain::Instancia',
+        salida: 'vector<GrupoDia>',
+        notas: 'un partido del viernes 23:30 que acaba el sábado sigue siendo del viernes',
+    },
+    grupo: {
+        nombre: 'GrupoDia',
+        ruta: 'include/referee_scheduler/algorithms/construir_instancia.hpp',
+        texto: 'La fecha y las posiciones en Instancia::partidos de los partidos de ese día. Guarda índices, no copias, para no duplicar los datos de entrada.',
+        entrada: 'partidos del día',
+        salida: 'DiaCivil + vector<size_t>',
+        notas: 'es la unidad de paralelismo: un día, una InstanciaDia, una búsqueda',
+    },
+    compactar: {
+        nombre: 'compactar_arbitros',
+        ruta: 'src/algorithms/construir_instancia.cpp',
+        texto: 'Fase 2. Un árbitro entra en el día si su ventana de disponibilidad contiene algún minuto de inicio válido del día. Se ordena por id global, así que el índice del vector es el id compacto 0..N-1. Recorta los vetos a los equipos que juegan ese día y los ordena para poder usar búsqueda binaria.',
+        entrada: 'domain::Instancia + GrupoDia',
+        salida: 'vector<ArbitroDia>',
+        notas: 'el fin de la ventana limita la hora de inicio, no la de fin del partido',
+    },
+    matriz: {
+        nombre: 'construir_matriz_distancias',
+        ruta: 'src/algorithms/construir_instancia.cpp',
+        texto: 'Fase 3. Compacta las ubicaciones del día (sedes de partido ∪ domicilios, conjuntos disjuntos), pide la matriz completa al proveedor, fuerza la diagonal a 0, sube a 1 minuto cualquier otro 0 y aplica el cierre métrico (Floyd-Warshall). Escribe también el domicilio compacto de cada árbitro.',
+        entrada: 'Instancia + GrupoDia + proveedor',
+        salida: 'MatrizDistancias (M×M Minutos, M ≤ 1024)',
+        notas: 'OSRM /table en lotes 100×100 con caché FNV-1a; en tests, proveedores fijos',
+    },
+    plazas: {
+        nombre: 'construir_plazas',
+        ruta: 'src/algorithms/construir_instancia.cpp',
+        texto: 'Fase 4. Cruza cada plaza con su partido para llevar horario, sede compacta y equipos al registro PlazaDia, y ordena por (minuto_inicio, sede, partido_id, plaza_id). El índice en el vector es el nivel del árbol de búsqueda. minuto_fin es absoluto: un partido de 23:30 a 01:00 acaba en el 1500.',
+        entrada: 'Instancia + GrupoDia + sede_global',
+        salida: 'vector<PlazaDia>',
+        notas: 'la retribución se pasa a céntimos una sola vez, con a_centimos',
+    },
+    candidatos: {
+        nombre: 'construir_candidatos',
+        ruta: 'src/algorithms/construir_instancia.cpp',
+        texto: 'Fase 5. Una pasada plaza × árbitro con cuatro filtros estáticos: nivel suficiente, ventana (inicio del partido dentro de la disponibilidad, sin sumar el viaje), vetos y ruta de ida y vuelta entre domicilio y sede. Devuelve un CSR plano con ids compactos ascendentes.',
+        entrada: 'InstanciaDia con fases 1-4',
+        salida: 'ListasCandidatos{offsets, candidatos}',
+        notas: 'necesario, no suficiente: la llegada tarde depende del estado y la decide coste_asignar',
+    },
+    instanciadia: {
+        nombre: 'InstanciaDia',
+        ruta: 'include/referee_scheduler/algorithms/instancia_dia.hpp',
+        texto: 'Todo lo estático de una jornada, ya compactado a índices densos: árbitros, sedes, matriz de minutos, plazas y candidatos. No guarda entidades del dominio ni historial. Accesores: viaje(a,b), n_plazas(), candidatos_de(p) como span.',
+        entrada: 'fases 1-5',
+        salida: 'la entrada de buscar_dijkstra',
+        notas: 'sin campos duplicados: n_candidatos sale de las fronteras del CSR',
+    },
+    arena: {
+        nombre: 'Arena',
+        ruta: 'include/referee_scheduler/algorithms/arena.hpp',
+        texto: 'Almacén de nodos con direcciones estables. Cada nodo es un bloque de 24 B (CabeceraNodo) + 4 B por árbitro, con el stride calculado en ejecución y redondeado a 8 B. Crece añadiendo bloques de heap de 64 KiB (duplicando), nunca mueve los existentes y copia solo las n_arbitros entradas significativas.',
+        entrada: 'n_arbitros del día',
+        salida: 'ids de nodo uint32 permanentes',
+        notas: '24 B: coste_g, padre, nivel, flags, decision',
+    },
+    abierta: {
+        nombre: 'ListaAbierta',
+        ruta: 'include/referee_scheduler/algorithms/abierta.hpp',
+        texto: 'Frontera como vector de cubos indexados por clave − base. Las claves son céntimos int64 y no decrecientes, así que insertar y extraer el mínimo son O(1) amortizado, sin comparadores. Dentro de un cubo el orden es LIFO. La base se fija con la primera inserción y nunca se inserta en un cubo ya consumido.',
+        entrada: 'índice de nodo + clave',
+        salida: 'el nodo de menor clave',
+        notas: 'anchura_cubo = 1 céntimo por defecto; anchura mayor ahorra memoria y explora más',
+    },
+    tabla: {
+        nombre: 'TablaEstados',
+        ruta: 'include/referee_scheduler/algorithms/tabla_estados.hpp',
+        texto: 'Lista cerrada en tabla de direccionamiento abierto con entradas de 16 B. La clave es (nivel, estado): el nivel es imprescindible porque dos plazas vacías dejan el mismo estado físico en niveles distintos. La huella elige el cubo y la igualdad se decide siempre con nivel + memcmp de 4·n bytes.',
+        entrada: 'nodo recién creado',
+        salida: 'true si debe entrar en la frontera',
+        notas: 'reemplaza solo con coste estrictamente menor y marca el viejo con kFlagSuperado',
+    },
+    raiz: {
+        nombre: 'crear_raiz',
+        ruta: 'src/algorithms/transiciones.cpp',
+        texto: 'Construye el estado inicial en la vista de capacidad máxima (cada árbitro en su domicilio, libre desde primer_inicio) y crea el nodo 0 con coste 0, sin padre, nivel 0 y decisión kSinDecision. Si el día no tiene plazas, la raíz ya es meta.',
+        entrada: 'Arena vacía + InstanciaDia',
+        salida: 'nodo 0',
+        notas: 'sede_id == domicilio es lo que identifica "todavía no ha salido de casa"',
+    },
+    objetivo: {
+        nombre: 'coste_asignar / coste_dejar_vacia',
+        ruta: 'include/referee_scheduler/algorithms/objetivo.hpp',
+        texto: 'Coste y factibilidad de una transición, en céntimos enteros. Dos regímenes: desde el domicilio el viaje puede empezar antes de la disponibilidad y no hay espera; ya trabajando se llega desde la sede actual y la espera se cobra entera. El retorno a casa se ajusta de forma telescópica. Dejar vacía una principal no es posible; una secundaria cuesta su retribución.',
+        entrada: 'EstadoArbitro + horario + tres distancias',
+        salida: 'céntimos o nullopt si no es factible',
+        notas: 'header-only, sin reservas; k = 14 céntimos/minuto, ε = 1',
+    },
+    generar: {
+        nombre: 'generar_hijos',
+        ruta: 'include/referee_scheduler/algorithms/transiciones.hpp',
+        texto: 'Recorre los candidatos de la plaza del nivel actual (CSR), pide las tres distancias y llama a coste_asignar. Si es factible, crea el hijo copiando el estado del padre y parchea solo los 4 B del árbitro asignado (sede y minuto_fin). Después intenta la rama de plaza vacía.',
+        entrada: 'nodo padre no meta',
+        salida: 'ids de hijo uno a uno al consumidor',
+        notas: 'orden determinista: candidatos ascendentes y luego la plaza vacía',
+    },
+    reconstruir: {
+        nombre: 'reconstruir_solucion',
+        ruta: 'src/algorithms/transiciones.cpp',
+        texto: 'Sube de la meta a la raíz leyendo CabeceraNodo::decision: un nodo con nivel = p + 1 decidió la plaza p. Traduce los índices compactos a ids globales y devuelve las decisiones en orden cronológico, con arbitro_global = -1 en las plazas vacías.',
+        entrada: 'Arena + InstanciaDia + meta',
+        salida: 'SolucionDia{coste, decisiones}',
+        notas: 'no compara estados: la decisión está guardada en el nodo',
+    },
+    resultado: {
+        nombre: 'ResultadoBusqueda',
+        ruta: 'include/referee_scheduler/algorithms/busqueda.hpp',
+        texto: 'Causa de parada (Optima, SinSolucion o PresupuestoAgotado), coste, meta, solución reconstruida y métricas: nodos creados y expandidos, hijos descartados, extracciones obsoletas, estados distintos, máximo de la lista abierta, memoria de arena/abierta/tabla y milisegundos.',
+        entrada: 'el bucle de Dijkstra',
+        salida: 'la solución del día y sus números',
+        notas: 'solo Optima demuestra optimalidad; el presupuesto es una red de seguridad',
+    },
+    main: {
+        nombre: 'main / orquestación (pendiente)',
+        ruta: 'src/main.cpp',
+        texto: 'Recorrerá los días de construir_instancias, resolverá los casos triviales (sin árbitros, sin plazas, sin solución estática) y solo entonces creará la Arena y llamará a buscar_dijkstra. Los tres días son independientes y pueden ir en paralelo. Hoy main.cpp solo comprueba que el binario arranca.',
+        entrada: 'vector<InstanciaDia>',
+        salida: 'planificación de todos los días',
+        notas: 'la agregación y el formato de salida están por decidir',
+    },
+};
+
+const panel = document.getElementById('detalle');
+const campos = {
+    nombre: document.getElementById('detalle-nombre'),
+    ruta: document.getElementById('detalle-ruta'),
+    texto: document.getElementById('detalle-texto'),
+    entrada: document.getElementById('detalle-entrada'),
+    salida: document.getElementById('detalle-salida'),
+    notas: document.getElementById('detalle-notas'),
+};
+
+let abierto = null; // botón cuyo detalle está visible
+
+function mostrar(id, boton) {
+    const info = INFO[id];
+    if (!info) return;
+
+    campos.nombre.textContent = info.nombre;
+    campos.ruta.textContent = info.ruta;
+    campos.texto.textContent = info.texto;
+    campos.entrada.textContent = info.entrada;
+    campos.salida.textContent = info.salida;
+    campos.notas.textContent = info.notas;
+
+    panel.hidden = false;
+
+    if (abierto) abierto.setAttribute('aria-pressed', 'false');
+    boton.setAttribute('aria-pressed', 'true');
+    abierto = boton;
+}
+
+function cerrar() {
+    panel.hidden = true;
+    if (abierto) abierto.setAttribute('aria-pressed', 'false');
+    abierto = null;
+}
+
+document.querySelectorAll('.modulo').forEach((boton) => {
+    boton.setAttribute('aria-pressed', 'false');
+    boton.addEventListener('click', () => {
+        // Volver a pulsar el mismo módulo cierra el panel.
+        if (abierto === boton) {
+            cerrar();
+            return;
+        }
+        mostrar(boton.dataset.id, boton);
+    });
+});
+
+document.getElementById('cerrar').addEventListener('click', cerrar);
+
+// Escape cierra el panel, como en cualquier diálogo.
+document.addEventListener('keydown', (evento) => {
+    if (evento.key === 'Escape' && !panel.hidden) cerrar();
+});
+</script>
+</body>
+</html>

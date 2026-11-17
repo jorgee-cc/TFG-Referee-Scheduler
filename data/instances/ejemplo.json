@@ -1,4 +1,6 @@
 {
+  "descripcion": "ejemplo.json: caso base de un día con dos partidos de tres plazas (principal, asistente y anotador). equipos=4, sedes=6 (2 de partido + 4 domicilios), arbitros=4, partidos=2, plazas=6, dias=1.",
+  "resumen": {"equipos": 4, "sedes": 6, "sedes_partido": 2, "domicilios": 4, "arbitros": 4, "partidos": 2, "plazas": 6, "dias": 1},
   "equipos": [
     { "id": 1, "nombre": "Deportivo A" },
     { "id": 2, "nombre": "Racing B" },
@@ -78,6 +80,13 @@
       "retribucion": 25.0
     },
     {
+      "id": 1004,
+      "partido_id": 100,
+      "rol": "anotador",
+      "nivel_requerido": 1,
+      "retribucion": 22.0
+    },
+    {
       "id": 1002,
       "partido_id": 101,
       "rol": "principal",
@@ -90,6 +99,13 @@
       "rol": "asistente",
       "nivel_requerido": 1,
       "retribucion": 30.0
+    },
+    {
+      "id": 1005,
+      "partido_id": 101,
+      "rol": "anotador",
+      "nivel_requerido": 1,
+      "retribucion": 22.0
     }
   ]
 }

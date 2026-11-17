@@ -210,6 +210,17 @@ namespace
                   "rol asistente");
         comprobar(instancia.plazas[1].retribucion == 25.5,
                   "retribución de la plaza");
+
+        // Los campos informativos de cabecera (descripcion/resumen) no forman
+        // parte del esquema y el cargador debe ignorarlos.
+        std::string con_metadatos =
+            documento(kEquipos, kSedes, kArbitros, kPartidos, kPlazas);
+        con_metadatos.insert(
+            1,
+            R"("descripcion": "prueba", "resumen": {"equipos": 2},)");
+        const Instancia con_resumen = instancia_desde_json(con_metadatos);
+        comprobar(con_resumen.partidos.size() == 1,
+                  "los metadatos informativos se ignoran");
     }
 
     void probar_errores_de_contenido()

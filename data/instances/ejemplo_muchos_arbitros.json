@@ -1,4 +1,6 @@
 {
+  "descripcion": "ejemplo_muchos_arbitros.json: tres partidos de tres plazas con 40 árbitros disponibles, para probar el exceso de oferta. equipos=6, sedes=43 (3 de partido + 40 domicilios), arbitros=40, partidos=3, plazas=9, dias=1.",
+  "resumen": {"equipos": 6, "sedes": 43, "sedes_partido": 3, "domicilios": 40, "arbitros": 40, "partidos": 3, "plazas": 9, "dias": 1},
   "equipos": [
     {"id": 1, "nombre": "Riazor CF"},
     {"id": 2, "nombre": "Atlántico SD"},
@@ -102,9 +104,12 @@
   "plazas": [
     {"id": 10000, "partido_id": 1000, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10001, "partido_id": 1000, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10006, "partido_id": 1000, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10002, "partido_id": 1001, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
     {"id": 10003, "partido_id": 1001, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10007, "partido_id": 1001, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0},
     {"id": 10004, "partido_id": 1002, "rol": "principal", "nivel_requerido": 2, "retribucion": 48.0},
-    {"id": 10005, "partido_id": 1002, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0}
+    {"id": 10005, "partido_id": 1002, "rol": "asistente", "nivel_requerido": 1, "retribucion": 28.0},
+    {"id": 10008, "partido_id": 1002, "rol": "anotador", "nivel_requerido": 1, "retribucion": 22.0}
   ]
 }

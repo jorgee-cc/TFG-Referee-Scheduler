@@ -111,6 +111,20 @@ va en euros.
       "rol": "principal",
       "nivel_requerido": 2,
       "retribucion": 45.0
+    },
+    {
+      "id": 1001,
+      "partido_id": 100,
+      "rol": "asistente",
+      "nivel_requerido": 1,
+      "retribucion": 25.0
+    },
+    {
+      "id": 1002,
+      "partido_id": 100,
+      "rol": "anotador",
+      "nivel_requerido": 1,
+      "retribucion": 22.0
     }
   ]
 }
@@ -153,11 +167,11 @@ totales de la instancia.
 
 En `data/instances/` hay varias instancias para probar el cargador y el motor:
 
-- `ejemplo_minimo.json`: 1 partido, 1 árbitro, 1 plaza.
-- `ejemplo_pequeno.json`: 2 partidos y 4 plazas.
+- `ejemplo_minimo.json`: 1 partido, 1 árbitro y 3 plazas.
+- `ejemplo_pequeno.json`: 2 partidos y 6 plazas.
 - `ejemplo_muchos_arbitros.json`: 40 árbitros para pocas plazas.
-- `ejemplo_muchas_plazas.json`: 10 partidos y 20 plazas.
-- `ejemplo_muchos_arbitros_muchas_plazas.json`: 60 árbitros, 15 partidos y 34
+- `ejemplo_muchas_plazas.json`: 10 partidos y 30 plazas.
+- `ejemplo_muchos_arbitros_muchas_plazas.json`: 60 árbitros, 15 partidos y 45
   plazas; es un caso de estrés.
 - `ejemplo_multi_dia.json`: viernes, sábado y domingo.
 - `ejemplo_vetos_niveles.json`: niveles, vetos y ventanas variadas.
@@ -166,6 +180,20 @@ En `data/instances/` hay varias instancias para probar el cargador y el motor:
 - `ejemplo_sin_solucion.json`: instancia válida pero infactible, para probar el
   camino `SinSolucion`.
 - `ejemplo_coordenadas_dispersas.json`: domicilios en varias localidades.
+- `ejemplo_estres_300_arbitros_300_partidos.json`: 300 árbitros y 300 partidos
+  en un solo día (900 plazas).
+- `ejemplo_estres_400_arbitros_1000_partidos.json`: 400 árbitros y 1000
+  partidos repartidos entre viernes, sábado y domingo (3000 plazas).
+
+En todas ellas cada partido tiene tres plazas: `principal`, `asistente` y
+`anotador`. El cargador no lo exige (solo pide una `principal` por partido),
+pero es el escenario real que modelan los ejemplos.
+
+Todos los JSON llevan al principio un campo `descripcion` y un objeto
+`resumen` con los conteos de equipos, sedes, árbitros, partidos, plazas y días.
+Dentro de `resumen`, `sedes` es el total de ubicaciones (sedes de partido más
+domicilios) y se desglosa en `sedes_partido` y `domicilios`. Son campos
+informativos: el cargador los ignora y solo valida las cinco colecciones.
 
 Los ejemplos grandes pueden agotar el presupuesto de nodos (`--max-nodos`) y
 terminar con `presupuesto_agotado`; es el comportamiento esperado de Dijkstra
